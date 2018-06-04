@@ -1,0 +1,12 @@
+MANIFEST
+dist
+build
+__pycache__
+debian
+output-*
+pythonenv
+.coverage
+*.egg-info
+.eggs
+*.pyc
+*.swp
