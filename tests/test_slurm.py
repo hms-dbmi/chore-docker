@@ -21,36 +21,15 @@ Test some basic assumptions in the base module
 import os
 import sys
 import time
-import tempfile
 
-import unittest
-
-from chore import get_job_manager
-from chore.watch import LOG as watch_log
+from .test_base import ManagerTestBase, watch_log
 
 DIR = os.path.dirname(__file__)
 DATA = os.path.join(DIR, 'data')
 
-class JobManagerTest(unittest.TestCase):
-    """Test running various shell based jobs"""
-    def setUp(self):
-        super(JobManagerTest, self).setUp()
-        self.pipes = os.path.join(self.media_root, 'pipe')
-        self.manager = get_job_manager('chore.shell', pipe_root=self.pipes)
-        self.filename = tempfile.mktemp(prefix='test-job-')
-
-    def tearDown(self):
-        super(JobManagerTest, self).tearDown()
-        for count in range(20):
-            filename = "%s.%d" % (self.filename, count)
-            if os.path.isfile(filename):
-                os.unlink(filename)
-        if os.path.isfile(self.filename):
-            os.unlink(self.filename)
-        if os.path.isfile(watch_log):
-            os.unlink(watch_log)
-
-        self.manager.clean_up()
+class SlurmManagerTest(ManagerTestBase):
+    """Test running various slurm based jobs"""
+    manager_cls = 'chore.slurm.SlurmJobManager'
 
     def test_shell_run(self):
         """Test that jobs can be run via the shell"""

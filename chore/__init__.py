@@ -22,22 +22,16 @@ Gets the configured pipeline module and initialises it.
 import inspect
 from importlib import import_module
 
-from .base import JobManagerBase, settings
+from .base import JobManagerBase, PIPELINE_MODULE, PIPELINE_ROOT, PIPELINE_BATCHED
 
 __pkgname__ = 'chore'
 __version__ = '0.7.2'
 
-DEFAULT = 'chore.shell'
-
-def get_job_manager(module_id=None, pipe_root=None, batched=None, cls_name='JobManager'):
+def get_job_manager(
+        module_id=PIPELINE_MODULE,
+        pipe_root=PIPELINE_ROOT,
+        batched=PIPELINE_BATCHED):
     """Return the configured job manager for this system"""
-    if pipe_root is None:
-        pipe_root = getattr(settings, 'PIPELINE_ROOT', None)
-    if module_id is None:
-        module_id = getattr(settings, 'PIPELINE_MODULE', DEFAULT)
-    if batched is None:
-        batched = getattr(settings, 'PIPELINE_BATCHED', False)
-
     # Already a job manager, so return
     if isinstance(module_id, JobManagerBase):
         return module_id
@@ -48,11 +42,12 @@ def get_job_manager(module_id=None, pipe_root=None, batched=None, cls_name='JobM
 
     # A name to a job manage, import and create
     try:
-        module = import_module(module_id)
-        return getattr(module, cls_name)(pipedir=pipe_root, batch=batched)
+        (module, cls) = module_id.rsplit('.', 1)
+        module = import_module(module)
+        return getattr(module, cls)(pipedir=pipe_root, batch=batched)
     except ImportError:
-        raise ImportError("Pipeline module {} not found.".format(module_id))
+        raise ImportError("Pipeline module {} is not found.".format(module_id))
     except SyntaxError as err:
-        raise ImportError("Pipeline module {} is broken: {}".format(module_id, err))
+        raise ImportError("Pipeline module {} err: {}".format(module_id, err))
     except AttributeError:
-        raise ImportError("Pipeline module {} has no {} class.".format(module_id, cls_name))
+        raise ImportError("Pipeline class {} is not found.".format(module_id))

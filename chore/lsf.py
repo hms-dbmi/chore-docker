@@ -40,10 +40,12 @@ def set_lsf_source(source=None):
 
 set_lsf_source(getattr(settings, 'PIPELINE_LSF_SOURCE', None))
 
-class JobManager(JobManagerBase):
+class LsfJobManager(JobManagerBase):
     """
     Submits jobs to the IBM lsf (bsub) system
     """
+    programs = ['bsub', 'bkill', 'bjobs']
+
     def __init__(self, *args, **kw):
         self.group = getattr(settings, 'PIPELINE_LSF_GROUP', None)
         self.queue = getattr(settings, 'PIPELINE_LSF_QUEUE', 'short')
@@ -51,7 +53,7 @@ class JobManager(JobManagerBase):
         if isinstance(self.limit, int):
             self.limit = "%s:00" % self.limit
 
-        super(JobManager, self).__init__(*args, **kw)
+        super(LsfJobManager, self).__init__(*args, **kw)
 
     def submit_job(self, job_id, cmd, depend=None):
         """

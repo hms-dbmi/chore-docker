@@ -19,48 +19,69 @@ Test some basic assumptions in the base module
 """
 
 import os
+import sys
+import time
+import shutil
+import unittest
 import tempfile
 
-import unittest
-
 from chore import get_job_manager
-from chore.watch import LOG as watch_log
+from chore.watch import LOG as watch_log # pylint: disable=unused-import
 
 DIR = os.path.dirname(__file__)
 DATA = os.path.join(DIR, 'data')
 
-class JobManagerTest(unittest.TestCase):
+class ManagerTestBase(unittest.TestCase):
     """Test running various shell based jobs"""
+    manager_cls = None
+
     def setUp(self):
-        super(JobManagerTest, self).setUp()
-        self.pipes = os.path.join(self.media_root, 'pipe')
-        self.manager = get_job_manager('chore.fake', pipe_root=self.pipes)
+        super(ManagerTestBase, self).setUp()
+        self.tempdir = tempfile.mkdtemp(suffix='chore-tests')
+        self.manager = get_job_manager(self.manager_cls, pipe_root=self.tempdir)
+        if not self.manager.is_enabled():
+            self.skipTest("Manager {} is not enabled".format(self.manager_cls))
         self.filename = tempfile.mktemp(prefix='test-job-')
 
     def tearDown(self):
-        super(JobManagerTest, self).tearDown()
-        for count in range(20):
-            filename = "%s.%d" % (self.filename, count)
-            if os.path.isfile(filename):
-                os.unlink(filename)
-        if os.path.isfile(self.filename):
-            os.unlink(self.filename)
-        if os.path.isfile(watch_log):
-            os.unlink(watch_log)
+        super(ManagerTestBase, self).tearDown()
+        if os.path.exists(self.tempdir):
+            shutil.rmtree(self.tempdir)
 
-        self.manager.clean_up()
+    def assertDependantJobs(self, *cmds, **kw): # pylint: disable=invalid-name
+        """Check a chain of jobs and make sure they work in line"""
+        expected = kw.pop('expected', None)
 
-    def test_shell_run(self):
-        """Test that jobs can be run via the shell"""
-        self.manager.submit('sleep_test_1', 'sleep 60')
-        data = self.manager.status('sleep_test_1')
-        self.assertIn(data['status'], ('sleeping', 'running'))
-        self.manager.stop('sleep_test_1')
-        data = self.manager.status('sleep_test_1')
-        self.assertEqual(data['status'], 'stopped')
+        for pos, cmd in enumerate(cmds):
+            cmd = 'sleep 0.1 && ' + (cmd % kw)
+            depend = 'a%d' % (pos - 1) if pos else None
+            self.manager.submit('a%d' % pos, cmd, depend=depend)
 
-    def test_non_existant_id(self):
-        """what happens when the job doesn't exist"""
-        data = self.manager.status('sleep_test_0')
-        self.assertEqual(data, {})
-        self.manager.stop('sleep_test_0')
+        if 'call' in kw:
+            kw['call']()
+
+        ret = []
+        job = 0
+        timeout = len(cmds) * 10
+        while job < len(cmds):
+            data = self.manager.status('a%d' % job)
+            if data.get('status', None) in ('finished', 'stopped', None):
+                ret.append("%s:%s" % (data.get('status', 'No'), str(data.get('return', -1))))
+                job += 1
+                continue
+            time.sleep(0.1)
+            timeout -= 1
+            self.assertTrue(timeout > 0, "Timeout waiting for dependant job %s" % cmds[job])
+
+        if expected is not None:
+            try:
+                self.assertEqual(tuple(expected), tuple(ret))
+            except AssertionError:
+                if os.path.isfile(watch_log):
+                    with open(watch_log, 'r') as fhl:
+                        sys.stderr.write("WATCH LOG:\n{}\n\n".format(fhl.read()))
+                raise
+
+class TestFakeManager(ManagerTestBase):
+    """Test some non-comittal code"""
+    manager_cls = 'chore.fake.FakeJobManager'

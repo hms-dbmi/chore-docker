@@ -26,7 +26,7 @@ from subprocess import Popen
 
 from .base import JobManagerBase
 
-class JobManager(JobManagerBase):
+class ShellJobManager(JobManagerBase):
     """
     The job is submitted to the raw system and is controlled via it's pid.
     This pid must be stored in the pipeline-shell directory in tmp.
@@ -98,7 +98,7 @@ class JobManager(JobManagerBase):
                 os.waitpid(int(pid), 0)
             except OSError:
                 pass
-        super(JobManager, self).clean_up()
+        super(ShellJobManager, self).clean_up()
         return pids
 
     def stop(self, job_id):

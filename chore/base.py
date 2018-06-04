@@ -29,23 +29,50 @@ from collections import defaultdict
 
 # These sections are for django compatibility
 try:
-    from django.conf import settings #pylint: disable=unused-import
+    from django.conf import settings
 except ImportError:
-    settings = {}
+    class AttributeDict(dict):
+        """Provide access to a dict as object attributes"""
+        def __getattr__(self, key):
+            try:
+                return self[key]
+            except KeyError as err:
+                raise AttributeError(err)
+    settings = AttributeDict(os.environ)
+
+try:
+    import subprocess
+    from subprocess import NULL # py3k
+except ImportError:
+    NULL = open(os.devnull, 'wb')
 
 try:
     from django.utils.timezone import make_aware
     from django.utils.timezone import now #pylint: disable=unused-import
 except ImportError:
-    import timezone
-    make_aware = lambda dt: timezone.localize(dt, is_dst=None)
+    from pytz import timezone
+    make_aware = lambda dt: timezone('UTC').localize(dt, is_dst=None)
     now = datetime.now
 
+PIPELINE_MODULE = getattr(settings, 'PIPELINE_MODULE', 'chore.shell.ShellJobManager')
+PIPELINE_ROOT = getattr(settings, 'PIPELINE_ROOT', None)
+PIPELINE_BATCHED = getattr(settings, 'PIPELINE_BATCHED', False)
+
+def has_program(program):
+    """Returns true if the program is found, false if not"""
+    try:
+        subprocess.call([program, "--help"], stdout=NULL, stderr=NULL)
+    except OSError as err:
+        if err.errno == os.errno.ENOENT:
+            return False
+        raise
+    return True
 
 class JobManagerBase(object):
     """Manage any number of pipeline methods such as shell, slurm, lsb, etc"""
     name = property(lambda self: type(self).__module__.split('.')[-1])
     scripts = defaultdict(str)
+    programs = []
     links = {}
 
     def __init__(self, pipedir=None, batch=False):
@@ -59,6 +86,17 @@ class JobManagerBase(object):
             atexit.register(self.clean_up)
         else:
             self.pipedir = pipedir
+
+    @classmethod
+    def is_enabled(cls):
+        """
+        Returns True if this manager is enabled, by default
+        checks that the list of used programs are installed.
+        """
+        for program in cls.programs:
+            if not has_program(program):
+                return False
+        return True
 
     def submit(self, job_id, cmd, depend=None, provide=None):
         """

@@ -22,26 +22,27 @@ This is the slurm based work-schedular plugin.
 from datetime import datetime
 from subprocess import Popen, PIPE
 
-from .base import JobManagerBase, BatchManagerBase, make_aware, settings
+from .base import JobManagerBase, make_aware, settings
 
-
-class JobManager(JobManagerBase):
+class SlurmJobManager(JobManagerBase):
     """Manage jobs sent to slurm cluster manager"""
+    programs = ['sbatch', 'scancel', 'sacct']
+
     def __init__(self, *args, **kw):
         self.partition = getattr(settings, 'PIPELINE_SLURM_PARTITION', 'short')
         self.limit = getattr(settings, 'PIPELINE_SLURM_LIMIT', '12:00')
         if isinstance(self.limit, int):
             self.limit = "%s:00" % self.limit
 
-        super(JobManager, self).__init__(*args, **kw)
+        super(SlurmJobManager, self).__init__(*args, **kw)
 
-    def submit(self, job_id, cmd, depends=None, provides=None):
+    def submit_job(self, job_id, cmd, depend=None):
         """
         Open the command locally using bash shell.
         """
         bcmd = ['sbatch', '-J', job_id, '-p', self.partition, '-e', self.job_fn(job_id, 'err')]
-        if depends:
-            bcmd += ['--dependency=afterok:{}'.format(depends)]
+        if depend:
+            bcmd += ['--dependency=afterok:{}'.format(depend)]
         if self.limit:
             bcmd += ['-t', self.limit]
         bcmd += ['--wrap', cmd]

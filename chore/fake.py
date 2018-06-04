@@ -14,17 +14,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+# pylint: disable=missing-docstring
 """
 This allows tests to operate pipelines without doing anything.
 """
-from .base import JobManagerBase, BatchManagerBase, now
+from .base import JobManagerBase, now
 
 COMMAND, IS_SLEEP, IS_STARTED, IS_COMPLETE, RETURN_CODE, ERROR_OUT = range(6)
 
-class JobManager(JobManagerBase):
+class FakeJobManager(JobManagerBase):
+    """Used for testing, does nto dispatch any jobs given"""
     cmds = {}
 
-    def submit(self, job_id, cmd, depends=None, provides=None):
+    def submit_job(self, job_id, cmd, depend=None):
         if 'bad-submit' in job_id:
             return False
         # Command, sleeping, started, completed, err
@@ -53,12 +55,12 @@ class JobManager(JobManagerBase):
     def status(self, job_id, clean=False):
         if job_id in self.cmds:
             cmd = self.cmds[job_id]
-        else:
-            def parse(v):
+        elif not clean:
+            def parse(val):
                 try:
-                    return int(v)
-                except:
-                    return v
+                    return int(val)
+                except ValueError:
+                    return val
             cmd = [parse(i) for i in job_id.split('_')]
             cmd = cmd + [False, False, False, False]
 
@@ -73,10 +75,9 @@ class JobManager(JobManagerBase):
             status = 'running'
 
         return {
-          'status': status,
-          'started': cmd[IS_STARTED],
-          'finished': cmd[IS_COMPLETE],
-          'return': cmd[RETURN_CODE],
-          'error': cmd[ERROR_OUT],
+            'status': status,
+            'started': cmd[IS_STARTED],
+            'finished': cmd[IS_COMPLETE],
+            'return': cmd[RETURN_CODE],
+            'error': cmd[ERROR_OUT],
         }
-
