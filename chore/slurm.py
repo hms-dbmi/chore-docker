@@ -24,12 +24,15 @@ from subprocess import Popen, PIPE
 
 from .base import JobManagerBase, make_aware, settings, NULL
 
+class InvalidPartition(KeyError):
+    """When selecting an invalid partition name"""
+
 class SlurmJobManager(JobManagerBase):
     """Manage jobs sent to slurm cluster manager"""
     programs = ['sbatch', 'scancel', 'sacct']
 
     def __init__(self, *args, **kw):
-        self.partition = getattr(settings, 'PIPELINE_SLURM_PARTITION', 'short')
+        self.partition = getattr(settings, 'PIPELINE_SLURM_PARTITION', 'normal')
         self.limit = getattr(settings, 'PIPELINE_SLURM_LIMIT', '12:00')
         if isinstance(self.limit, int):
             self.limit = "%s:00" % self.limit
@@ -45,14 +48,26 @@ class SlurmJobManager(JobManagerBase):
             bcmd += ['--dependency=afterok:{}'.format(depend)]
         if self.limit:
             bcmd += ['-t', self.limit]
-        bcmd += ['--wrap', cmd]
-        proc = Popen(bcmd, shell=False, stdout=NULL, stderr=PIPE, close_fds=True)
-        ret = proc.wait() == 0
-        stderr, stdout = proc.communicate()
-        if not ret and stderr:
-            print("\n\nFOOP: {} FOOP\n\n".format(stdout))
+
+        # Prefix bash interpriter for script
+        cmd = "#!/bin/bash\n\n" + cmd
+
+        proc = Popen(
+            bcmd,
+            shell=False,
+            stdout=NULL,
+            stderr=PIPE,
+            stdin=PIPE,
+            close_fds=True)
+
+        (_, stderr) = proc.communicate(input=cmd)
+
+        if 'invalid partition specified' in stderr:
+            raise InvalidPartition(stderr.split("\n")[0].split(': ')[-1])
+        elif stderr:
             raise IOError(stderr)
-        return ret
+
+        return proc.wait() == 0
 
     @staticmethod
     def stop(job_id):
@@ -60,23 +75,25 @@ class SlurmJobManager(JobManagerBase):
         return Popen(['scancel', job_id]).wait() == 0
 
     def job_status(self, job_id):
-        """Returns if the job is running, how long it took or is taking and other details."""
+        """Returns if the job is running, how long it took or is taking."""
         # Get the status for the listed job, how long it took and everything
-        # sacct -a -l -p --name=test_id_mo131
-        proc = Popen(['sacct', '-a', '-format', 'jobid,jobname,start,end,state,exitcode',\
-            '-p', '--jobs', job_id], stdout=PIPE, stderr=None)
+        cmd = ['sacct', '-a', '-p',
+               '--format', 'jobid,jobname,submit,start,end,state,exitcode',\
+               '--name', job_id]
+        proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
         (out, err) = proc.communicate()
 
         # Turn the output into a dictionary useful
-        lines = out.split('\n')
+        lines = out.strip().split('\n')
         if len(lines) <= 1:
             return {}
 
-        data = dict(zip(lines[0].split('|'), lines[1].split('|')))
+        data = dict(zip(lines[0].lower().split('|'), lines[-1].split('|')))
 
         for dkey in ('submit', 'start', 'end'):
             if ':' in data[dkey]:
-                data[dkey] = make_aware(datetime.strptime(data[dkey], '%y-%m-%dT%H:%M:%S'))
+                data[dkey] = make_aware(
+                    datetime.strptime(data[dkey], '%Y-%m-%dT%H:%M:%S'))
             else: # Should be 'Unknown', no reason not to catch all
                 data[dkey] = None
 
@@ -88,15 +105,15 @@ class SlurmJobManager(JobManagerBase):
 
         ret = None
         (_, err) = self.job_read(job_id, 'err')
-        (ret, sig) = data['exitcode']
+        (ret, sig) = data['exitcode'].split(':')
 
         return {
             'submitted': data['submit'],
             'started': data['start'],
-            'finished': data['emd'],
+            'finished': data['end'],
             'pid': data['jobid'],
             'status': status,
             'return': ret,
-            'error': int(err),
+            'error': int(err or 0),
             'signal': int(sig),
         }
