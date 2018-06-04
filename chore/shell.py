@@ -35,12 +35,11 @@ class ShellJobManager(JobManagerBase):
     DEP = watch + ' %(fn)s && '
     RET = '; echo $? > "%(fn)s"'
 
-    def submit_job(self, job_id, cmd, depend=None, **kw):
+    def job_submit(self, job_id, cmd, depend=None, **kw):
         """
         Open the command locally using bash shell.
         """
         self.job_stale(job_id)
-        #print("submit: {} >{} ({})".format(job_id, cmd, depend))
         if depend:
             (_, pid) = self.job_read(depend, 'pid')
             (_, ret) = self.job_read(depend, 'ret')
@@ -64,7 +63,6 @@ class ShellJobManager(JobManagerBase):
         out = open('/dev/null', 'w')
         # Collect the return code into the ret file
         cmd += self.RET % {'fn': self.job_fn(job_id, 'ret')}
-        #print("  -> {}".format(cmd))
 
         # Run the large shell command
         proc = Popen(cmd, shell=True, stdout=out, stderr=err, close_fds=True)
@@ -121,38 +119,12 @@ class ShellJobManager(JobManagerBase):
         """Returns true if the process is still running"""
         return os.path.exists("/proc/%d/status" % int(pid))
 
-    def status(self, job_id, clean=False):
+    def job_status(self, job_id):
         """Returns a dictionary containing status information,
         can only be called once as it will clean up status files!"""
-        #print("STATUS: {} CLEAN:{}".format(job_id, clean))
-        (started, pid) = self.job_read(job_id, 'pid')
-        (finished, ret) = self.job_read(job_id, 'ret')
-        (_, err) = self.job_read(job_id, 'err')
-        status = 'finished'
-        if err == 'S':
-            err = ''
-            if ret != '0':
-                status = 'stopped'
-
-        if pid is None and ret is None:
-            return {}
-
+        ret, pid = self._program_status(job_id)
         if pid is not None:
-            status = self.state_and_clear(pid, status)
-
-        if clean and (finished or err):
-            self.job_clean(job_id, 'pid')
-            self.job_clean(job_id, 'ret')
-            self.job_clean(job_id, 'err')
-
-        ret = {
-            'status': status,
-            'started': started,
-            'finished': finished,
-            'return': int(ret) if ret is not None else None,
-            'error': err,
-        }
-        #print("  RET: {status}, {return}, {error}".format(**ret))
+            ret['status'] = self.state_and_clear(pid, ret['status'])
         return ret
 
     @staticmethod

@@ -55,7 +55,7 @@ class LsfJobManager(JobManagerBase):
 
         super(LsfJobManager, self).__init__(*args, **kw)
 
-    def submit_job(self, job_id, cmd, depend=None, **kw):
+    def job_submit(self, job_id, cmd, depend=None, **kw):
         """
         Open the command locally using bash shell.
         """
@@ -74,12 +74,10 @@ class LsfJobManager(JobManagerBase):
         """Stop the given process using bkill"""
         return Popen(['bkill', '-J', job_id]).wait() == 0
 
-    def status(self, job_id, clean=False):
+    def job_status(self, job_id):
         """
         Returns if the job is running, how long it took or is taking
         as well as details status from lsf such as error message.
-
-        clean - if set to true, will delete dependant files.
         """
         # Get the status for the listed job, how long it took and everything
         proc = Popen(['bjobs', '-J', job_id, '-a', '-W'], stdout=PIPE, stderr=None)
@@ -117,9 +115,6 @@ class LsfJobManager(JobManagerBase):
         }.get(data['stat'])
 
         (_, err) = self.job_read(job_id, 'err')
-
-        if status == 'finished' and clean:
-            self.job_clean(job_id, 'err')
 
         ret, err = self._split_lsf_err(*(err or '').split('-'*60))
 

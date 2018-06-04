@@ -26,7 +26,7 @@ class FakeJobManager(JobManagerBase):
     """Used for testing, does nto dispatch any jobs given"""
     cmds = {}
 
-    def submit_job(self, job_id, cmd, depend=None):
+    def job_submit(self, job_id, cmd, depend=None, **kw):
         if 'bad-submit' in job_id:
             return False
         # Command, sleeping, started, completed, err
@@ -52,10 +52,10 @@ class FakeJobManager(JobManagerBase):
             self.cmds[job_id][RETURN_CODE] = 127
             self.cmds[job_id][ERROR_OUT] = 'STOPPED'
 
-    def status(self, job_id, clean=False):
+    def job_status(self, job_id):
         if job_id in self.cmds:
             cmd = self.cmds[job_id]
-        elif not clean:
+        else:
             def parse(val):
                 try:
                     return int(val)

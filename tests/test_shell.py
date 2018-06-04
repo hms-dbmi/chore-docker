@@ -99,3 +99,21 @@ class BatchedShellManagerTest(ManagerTestBase):
         ret = self.manager.submit_chain('s', 'sleep 10', 'sleep 5', 'sleep 8')
         self.assertTrue(ret)
 
+        self.assertEqual(
+            self.manager.cached_scripts['s'].replace(self.tempdir, '$dir'),
+            """#   --== JOB: s.0 ==--
+echo "-" > $dir/s.0.pid
+sleep 10
+echo "$?" > $dir/s.0.ret
+
+#   --== JOB: s.1 ==--
+echo "-" > $dir/s.1.pid
+sleep 5
+echo "$?" > $dir/s.1.ret
+
+#   --== JOB: s.2 ==--
+echo "-" > $dir/s.2.pid
+sleep 8
+echo "$?" > $dir/s.2.ret
+
+""")

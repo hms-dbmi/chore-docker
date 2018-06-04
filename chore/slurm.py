@@ -36,7 +36,7 @@ class SlurmJobManager(JobManagerBase):
 
         super(SlurmJobManager, self).__init__(*args, **kw)
 
-    def submit_job(self, job_id, cmd, depend=None, **kw):
+    def job_submit(self, job_id, cmd, depend=None, **kw):
         """
         Open the command locally using bash shell.
         """
@@ -54,7 +54,7 @@ class SlurmJobManager(JobManagerBase):
         """Stop the given process using scancel"""
         return Popen(['scancel', job_id]).wait() == 0
 
-    def status(self, job_id, clean=False):
+    def job_status(self, job_id):
         """Returns if the job is running, how long it took or is taking and other details."""
         # Get the status for the listed job, how long it took and everything
         # sacct -a -l -p --name=test_id_mo131
@@ -84,8 +84,6 @@ class SlurmJobManager(JobManagerBase):
         ret = None
         (_, err) = self.job_read(job_id, 'err')
         (ret, sig) = data['exitcode']
-        if clean:
-            pass
 
         return {
             'submitted': data['submit'],

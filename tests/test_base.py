@@ -55,10 +55,6 @@ class ManagerTestBase(unittest.TestCase):
 
         cmds = ['sleep 0.1 && ' + (cmd % kw) for cmd in cmds]
         self.manager.submit_chain('a', *cmds)
-        #for pos, cmd in enumerate(cmds):
-        #    cmd = 'sleep 0.1 && ' + (cmd % kw)
-        #    depend = 'a%d' % (pos - 1) if pos else None
-        #    self.manager.submit('a%d' % pos, cmd, depend=depend)
 
         if 'call' in kw:
             kw['call']()

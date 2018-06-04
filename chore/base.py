@@ -85,6 +85,8 @@ class JobManagerBase(object):
     """Manage any number of pipeline methods such as shell, slurm, lsb, etc"""
     name = property(lambda self: type(self).__module__.split('.')[-1])
     scripts = defaultdict(str)
+    cached_scripts = {}
+    fn_list = set()
     programs = []
     links = {}
 
@@ -116,14 +118,28 @@ class JobManagerBase(object):
         Submit a job to the give batching mechanism.
         """
         if not self.batch:
-            return self.submit_job(job_id, cmd, **kw)
+            return self.job_submit(job_id, cmd, **kw)
         return self.submit_batch(job_id, cmd, **kw)
 
     def job_fn(self, job_id, ext='pid'):
         """Return the filename of the given job_id and type"""
         if not os.path.isdir(self.pipedir):
             os.makedirs(self.pipedir)
+        self.fn_list.add(ext)
         return os.path.join(self.pipedir, job_id + '.' + ext)
+
+    def job_clean(self, job_id):
+        """Remove any remaining files for this old job"""
+        for ext in list(self.fn_list):
+            self.job_clean_fn(job_id, ext)
+
+    def job_clean_fn(self, job_id, ext):
+        """Delete files once finished with them"""
+        filen = self.job_fn(job_id, ext)
+        if os.path.isfile(filen):
+            os.unlink(filen)
+            return True
+        return False
 
     def clean_up(self):
         """Deletes all data in the piepline directory."""
@@ -140,14 +156,6 @@ class JobManagerBase(object):
         else:
             return (None, None)
 
-    def job_clean(self, job_id, ext):
-        """Delete files once finished with them"""
-        filen = self.job_fn(job_id, ext)
-        if os.path.isfile(filen):
-            os.unlink(filen)
-            return True
-        return False
-
     def job_write(self, job_id, ext, data):
         """Write the data to the given job_id record"""
         filen = self.job_fn(job_id, ext)
@@ -156,18 +164,18 @@ class JobManagerBase(object):
 
     def job_stale(self, job_id):
         """Figure out if a job has stale return files"""
-        if self.job_clean(job_id, 'ret'):
+        if self.job_clean_fn(job_id, 'ret'):
             sys.stderr.write("Stale job file cleared: {}\n".format(job_id))
-            self.job_clean(job_id, 'pid')
+            self.job_clean(job_id)
 
-    def submit_job(self, job_id, cmd, depend=None, **kw):
+    def job_submit(self, job_id, cmd, depend=None, **kw):
         """Submit a single job function to this job manager.
 
         job_id - The identifier for this job, must be historically unique.
         cmd    - The command as you would type it out on a command line.
         depend - The job_id for the previous or 'job this command depends on'
         """
-        raise NotImplementedError("Function 'submit_job' is missing.")
+        raise NotImplementedError("Function 'job_submit' is missing.")
 
     def submit_chain(self, chain_id, *jobs):
         """
@@ -175,7 +183,7 @@ class JobManagerBase(object):
         """
         ids = ["{}.{}".format(chain_id, x) for x in range(len(jobs))]
         for (pid, job_id, nid), cmd in zip(tripplet(ids), jobs):
-            if not self.submit(job_id, cmd, depend=pid, provide=nid, chain_id=chain_id):
+            if self.submit(job_id, cmd, depend=pid, provide=nid, chain_id=chain_id) is False:
                 return False
         return True
 
@@ -196,6 +204,15 @@ class JobManagerBase(object):
                   When provide is None, this job is considered the last job in
                   the chain of jobs (or the only job if also the first)
                   No jobs as dispatched until a job is submitted without this.
+        chain_id - Unique id just for this chain, used internally 4 chain jobs.
+
+        Returns:
+
+            str  - A generated chain_id from the job_id, nothing has been
+                    dispatched yet.
+            True - The batched jobs have been dispatched sucessfully.
+            False - The batched jobs failed to be dispatched.
+
         """
         if chain_id is None:
             if depend:
@@ -215,12 +232,63 @@ class JobManagerBase(object):
 
         if not provide:
             # This job is the last (or only) job in the list of jobs
-            self.submit_job(chain_id, self.scripts[chain_id])
+            script = self.scripts.pop(chain_id)
+            self.cached_scripts[chain_id] = script
+            return self.job_submit(chain_id, script)
+        return chain_id
 
     def _construct_job(self, job_id, cmd):
         """Turn a job command into one part of a script"""
         return """#   --== JOB: {job_id:s} ==--
-echo "-" > {ret:s}
+echo "-" > {pid:s}
 {cmd:s}
 echo "$?" > {ret:s}
-""".format(job_id=job_id, cmd=cmd, ret=self.job_fn(job_id, 'ret'))
+
+""".format(
+    job_id=job_id,
+    cmd=cmd,
+    pid=self.job_fn(job_id, 'pid'),
+    ret=self.job_fn(job_id, 'ret'))
+
+    def job_status(self, job_id):
+        """Returns the status of the job"""
+        raise NotImplementedError("Function 'job_status' is missing.")
+
+    def status(self, job_id, clean=False):
+        """
+        Return the status of this job or this batch job
+        """
+        if self.batch and job_id in self.links:
+            chain_id = self.links[job_id]
+            chain_ret = self.job_status(chain_id)
+            (ret, _) = self._program_status(job_id)
+            ret['error'] = chain_ret['error']
+            return ret
+        else: # job_id is chain_id or not batch
+            ret = self.job_status(job_id)
+
+        if clean and (ret.get('finished', False) or ret.get('error', False)):
+            self.job_clean(job_id)
+
+        return ret
+
+    def _program_status(self, job_id):
+        (started, pid) = self.job_read(job_id, 'pid')
+        (finished, ret) = self.job_read(job_id, 'ret')
+        (_, err) = self.job_read(job_id, 'err')
+        status = 'finished'
+        if err == 'S':
+            err = ''
+            if ret != '0':
+                status = 'stopped'
+
+        if pid is None and ret is None:
+            return {}, pid
+
+        return {
+            'status': status,
+            'started': started,
+            'finished': finished,
+            'return': int(ret) if ret is not None else None,
+            'error': err,
+        }, pid
