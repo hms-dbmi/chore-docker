@@ -22,7 +22,7 @@ This is the slurm based work-schedular plugin.
 from datetime import datetime
 from subprocess import Popen, PIPE
 
-from .base import JobManagerBase, make_aware, settings
+from .base import JobManagerBase, make_aware, settings, NULL
 
 class SlurmJobManager(JobManagerBase):
     """Manage jobs sent to slurm cluster manager"""
@@ -46,8 +46,13 @@ class SlurmJobManager(JobManagerBase):
         if self.limit:
             bcmd += ['-t', self.limit]
         bcmd += ['--wrap', cmd]
-        proc = Popen(bcmd, shell=False, stdout=None, stderr=None, close_fds=True)
-        return proc.wait() == 0
+        proc = Popen(bcmd, shell=False, stdout=NULL, stderr=PIPE, close_fds=True)
+        ret = proc.wait() == 0
+        stderr, stdout = proc.communicate()
+        if not ret and stderr:
+            print("\n\nFOOP: {} FOOP\n\n".format(stdout))
+            raise IOError(stderr)
+        return ret
 
     @staticmethod
     def stop(job_id):
