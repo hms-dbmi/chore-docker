@@ -36,7 +36,7 @@ class SlurmJobManager(JobManagerBase):
 
         super(SlurmJobManager, self).__init__(*args, **kw)
 
-    def submit_job(self, job_id, cmd, depend=None):
+    def submit_job(self, job_id, cmd, depend=None, **kw):
         """
         Open the command locally using bash shell.
         """

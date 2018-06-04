@@ -34,11 +34,12 @@ DATA = os.path.join(DIR, 'data')
 class ManagerTestBase(unittest.TestCase):
     """Test running various shell based jobs"""
     manager_cls = None
+    batched = False
 
     def setUp(self):
         super(ManagerTestBase, self).setUp()
         self.tempdir = tempfile.mkdtemp(suffix='chore-tests')
-        self.manager = get_job_manager(self.manager_cls, pipe_root=self.tempdir)
+        self.manager = get_job_manager(self.manager_cls, self.tempdir, self.batched)
         if not self.manager.is_enabled():
             self.skipTest("Manager {} is not enabled".format(self.manager_cls))
         self.filename = tempfile.mktemp(prefix='test-job-')
@@ -52,10 +53,12 @@ class ManagerTestBase(unittest.TestCase):
         """Check a chain of jobs and make sure they work in line"""
         expected = kw.pop('expected', None)
 
-        for pos, cmd in enumerate(cmds):
-            cmd = 'sleep 0.1 && ' + (cmd % kw)
-            depend = 'a%d' % (pos - 1) if pos else None
-            self.manager.submit('a%d' % pos, cmd, depend=depend)
+        cmds = ['sleep 0.1 && ' + (cmd % kw) for cmd in cmds]
+        self.manager.submit_chain('a', *cmds)
+        #for pos, cmd in enumerate(cmds):
+        #    cmd = 'sleep 0.1 && ' + (cmd % kw)
+        #    depend = 'a%d' % (pos - 1) if pos else None
+        #    self.manager.submit('a%d' % pos, cmd, depend=depend)
 
         if 'call' in kw:
             kw['call']()
@@ -64,7 +67,7 @@ class ManagerTestBase(unittest.TestCase):
         job = 0
         timeout = len(cmds) * 10
         while job < len(cmds):
-            data = self.manager.status('a%d' % job)
+            data = self.manager.status('a.{}'.format(job))
             if data.get('status', None) in ('finished', 'stopped', None):
                 ret.append("%s:%s" % (data.get('status', 'No'), str(data.get('return', -1))))
                 job += 1
@@ -80,6 +83,7 @@ class ManagerTestBase(unittest.TestCase):
                 if os.path.isfile(watch_log):
                     with open(watch_log, 'r') as fhl:
                         sys.stderr.write("WATCH LOG:\n{}\n\n".format(fhl.read()))
+                    os.unlink(watch_log)
                 raise
 
 class TestFakeManager(ManagerTestBase):

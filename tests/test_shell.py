@@ -85,6 +85,17 @@ class ShellManagerTest(ManagerTestBase):
         def stop():
             """Quit the job after 100ms"""
             time.sleep(0.1)
-            self.manager.stop('a0')
+            self.manager.stop('a.0')
         self.assertDependantJobs('sleep 60', 'sleep 1', 'sleep 1', call=stop,\
             expected=('stopped:9', 'stopped:1', 'stopped:1'))
+
+class BatchedShellManagerTest(ManagerTestBase):
+    """Test running batched up shell deps"""
+    manager_cls = 'chore.shell.ShellJobManager'
+    batched = True
+
+    def test_simple_chain(self):
+        """A single chain of commands to be inserted"""
+        ret = self.manager.submit_chain('s', 'sleep 10', 'sleep 5', 'sleep 8')
+        self.assertTrue(ret)
+

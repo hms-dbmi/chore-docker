@@ -27,6 +27,12 @@ import tempfile
 from datetime import datetime
 from collections import defaultdict
 
+try:
+    from itertools import tee, islice, chain, izip
+except ImportError:
+    from itertools import tee, islice, chain # py3
+    izip = zip
+
 # These sections are for django compatibility
 try:
     from django.conf import settings
@@ -68,6 +74,13 @@ def has_program(program):
         raise
     return True
 
+def tripplet(iterable):
+    """Split a list of items into it's previous, current and next items"""
+    prevs, items, nexts = tee(iterable, 3)
+    prevs = chain([None], prevs)
+    nexts = chain(islice(nexts, 1, None), [None])
+    return izip(prevs, items, nexts)
+
 class JobManagerBase(object):
     """Manage any number of pipeline methods such as shell, slurm, lsb, etc"""
     name = property(lambda self: type(self).__module__.split('.')[-1])
@@ -98,13 +111,13 @@ class JobManagerBase(object):
                 return False
         return True
 
-    def submit(self, job_id, cmd, depend=None, provide=None):
+    def submit(self, job_id, cmd, **kw):
         """
         Submit a job to the give batching mechanism.
         """
         if not self.batch:
-            return self.submit_job(job_id, cmd, depend=depend)
-        return self.submit_batch(job_id, cmd, depend=depend, provide=provide)
+            return self.submit_job(job_id, cmd, **kw)
+        return self.submit_batch(job_id, cmd, **kw)
 
     def job_fn(self, job_id, ext='pid'):
         """Return the filename of the given job_id and type"""
@@ -147,7 +160,7 @@ class JobManagerBase(object):
             sys.stderr.write("Stale job file cleared: {}\n".format(job_id))
             self.job_clean(job_id, 'pid')
 
-    def submit_job(self, job_id, cmd, depend=None):
+    def submit_job(self, job_id, cmd, depend=None, **kw):
         """Submit a single job function to this job manager.
 
         job_id - The identifier for this job, must be historically unique.
@@ -156,7 +169,17 @@ class JobManagerBase(object):
         """
         raise NotImplementedError("Function 'submit_job' is missing.")
 
-    def submit_batch(self, job_id, cmd, depend=None, provide=None):
+    def submit_chain(self, chain_id, *jobs):
+        """
+        Submits many jobs under this chain id.
+        """
+        ids = ["{}.{}".format(chain_id, x) for x in range(len(jobs))]
+        for (pid, job_id, nid), cmd in zip(tripplet(ids), jobs):
+            if not self.submit(job_id, cmd, depend=pid, provide=nid, chain_id=chain_id):
+                return False
+        return True
+
+    def submit_batch(self, job_id, cmd, depend=None, provide=None, chain_id=None): # pylint: disable=too-many-arguments
         """
         Collect together all the commands in this chain into a batch script
 
@@ -174,24 +197,25 @@ class JobManagerBase(object):
                   the chain of jobs (or the only job if also the first)
                   No jobs as dispatched until a job is submitted without this.
         """
-        if depend:
-            # This job is not the first in the chain, so get existing script
-            script_id = self.links[depend]
-        elif not provide:
-            # This job is the only job in the chain.
-            script_id = job_id
-        else:
-            # This is the first job and there is more to follow
-            script_id = os.path.commonprefix([job_id, provide])
-            if not script_id:
-                raise KeyError("All jobs must have a unique common prefix.")
+        if chain_id is None:
+            if depend:
+                # This job is not the first in the chain, so get existing script
+                chain_id = self.links[depend]
+            elif not provide:
+                # This job is the only job in the chain.
+                chain_id = job_id
+            else:
+                # This is the first job and there is more to follow
+                chain_id = os.path.commonprefix([job_id, provide])
+                if not chain_id:
+                    raise KeyError("All jobs must have a unique common prefix.")
 
-        self.links[job_id] = script_id
-        self.scripts[script_id] += self._construct_job(job_id, cmd)
+        self.links[job_id] = chain_id
+        self.scripts[chain_id] += self._construct_job(job_id, cmd)
 
         if not provide:
             # This job is the last (or only) job in the list of jobs
-            self.submit_job(script_id, self.scripts[script_id])
+            self.submit_job(chain_id, self.scripts[chain_id])
 
     def _construct_job(self, job_id, cmd):
         """Turn a job command into one part of a script"""
@@ -199,4 +223,4 @@ class JobManagerBase(object):
 echo "-" > {ret:s}
 {cmd:s}
 echo "$?" > {ret:s}
-""".format(job_id=job_id, cmd=cmd, status=self.job_fn(job_id, 'ret'))
+""".format(job_id=job_id, cmd=cmd, ret=self.job_fn(job_id, 'ret'))
