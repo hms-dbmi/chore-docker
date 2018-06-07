@@ -36,6 +36,11 @@ except ImportError:
 # These sections are for django compatibility
 try:
     from django.conf import settings
+    from django.core.exceptions import ImproperlyConfigured
+    try:
+        getattr(settings, 'SITE_ROOT', None)
+    except ImproperlyConfigured as err:
+        raise ImportError(err)
 except ImportError:
     class AttributeDict(dict):
         """Provide access to a dict as object attributes"""
