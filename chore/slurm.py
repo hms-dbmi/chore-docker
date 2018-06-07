@@ -80,12 +80,12 @@ class SlurmJobManager(JobManagerBase):
 
     def job_status(self, job_id):
         """Returns if the job is running, how long it took or is taking."""
-        data = list(self._sacct('--name', job_id))
+        data = list(self._sacct('-a', '--name', job_id))
         return data[0] if data else {}
 
     def _sacct(self, *args):
         """Call sacct with the given args and yield dictionary of fields per line"""
-        cmd = ['sacct', 'a', '-p', '--format',
+        cmd = ['sacct', '-p', '--format',
                'jobid,jobname,submit,start,end,state,exitcode'] + list(args)
         proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
         (out, _) = proc.communicate()
