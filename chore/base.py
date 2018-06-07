@@ -133,6 +133,13 @@ class JobManagerBase(object):
         self.fn_list.add(ext)
         return os.path.join(self.pipedir, job_id + '.' + ext)
 
+    def jobs(self, ext='pid'):
+        """Generator yielding job_ids based on files in job_fn"""
+        if os.path.isdir(self.pipedir):
+            for item in os.listdir(self.pipedir):
+                if item.endswith('.' + ext):
+                    yield item.replace('.' + ext, '')
+
     def job_clean(self, job_id):
         """Remove any remaining files for this old job"""
         for ext in list(self.fn_list):
@@ -259,6 +266,11 @@ echo "$?" > {ret:s}
         """Returns the status of the job"""
         raise NotImplementedError("Function 'job_status' is missing.")
 
+    def jobs_status(self):
+        """Returns a list of statuses for all recorded jobs"""
+        for job_id in self.jobs():
+            yield self.job_status(job_id)
+
     def status(self, job_id, clean=False):
         """
         Return the status of this job or this batch job
@@ -280,10 +292,10 @@ echo "$?" > {ret:s}
     def _program_status(self, job_id):
         (started, pid) = self.job_read(job_id, 'pid')
         (finished, ret) = self.job_read(job_id, 'ret')
-        (_, err) = self.job_read(job_id, 'err')
+        (_, error) = self.job_read(job_id, 'err')
         status = 'finished'
-        if err == 'S':
-            err = ''
+        if error == 'S':
+            error = ''
             if ret != '0':
                 status = 'stopped'
 
@@ -295,5 +307,5 @@ echo "$?" > {ret:s}
             'started': started,
             'finished': finished,
             'return': int(ret) if ret is not None else None,
-            'error': err,
+            'error': error,
         }, pid

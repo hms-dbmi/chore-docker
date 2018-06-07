@@ -74,22 +74,28 @@ class SlurmJobManager(JobManagerBase):
         """Stop the given process using scancel"""
         return Popen(['scancel', job_id]).wait() == 0
 
+    def jobs_status(self):
+        """Returns the status for the whole slurm directory"""
+        return self._sacct()
+
     def job_status(self, job_id):
         """Returns if the job is running, how long it took or is taking."""
-        # Get the status for the listed job, how long it took and everything
-        cmd = ['sacct', '-a', '-p',
-               '--format', 'jobid,jobname,submit,start,end,state,exitcode',\
-               '--name', job_id]
+        data = list(self._sacct('--name', job_id))
+        return data[0] if data else {}
+
+    def _sacct(self, *args):
+        """Call sacct with the given args and yield dictionary of fields per line"""
+        cmd = ['sacct', 'a', '-p', '--format',
+               'jobid,jobname,submit,start,end,state,exitcode'] + list(args)
         proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
-        (out, err) = proc.communicate()
-
-        # Turn the output into a dictionary useful
+        (out, _) = proc.communicate()
         lines = out.strip().split('\n')
-        if len(lines) <= 1:
-            return {}
+        header = lines[0].lower().split('|')
+        for line in lines[1:]:
+            yield self._parse_status(dict(zip(header, line.split('|'))))
 
-        data = dict(zip(lines[0].lower().split('|'), lines[-1].split('|')))
-
+    def _parse_status(self, data):
+        # Get the status for the listed job, how long it took and everything
         for dkey in ('submit', 'start', 'end'):
             if ':' in data[dkey]:
                 data[dkey] = make_aware(
@@ -104,7 +110,7 @@ class SlurmJobManager(JobManagerBase):
         }.get(data['state'], 'finished')
 
         ret = None
-        (_, err) = self.job_read(job_id, 'err')
+        (_, err) = self.job_read(data['jobname'], 'err')
         (ret, sig) = data['exitcode'].split(':')
 
         return {
