@@ -120,7 +120,7 @@ class SlurmJobManager(JobManagerBase):
             'finished': data['end'],
             'pid': data['jobid'],
             'status': status,
-            'return': ret,
-            'error': int(err or 0),
+            'return': int(ret or -1),
+            'error': str(err),
             'signal': int(sig),
         }
