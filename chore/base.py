@@ -278,7 +278,7 @@ echo "$?" > {ret:s}
         if self.batch and job_id in self.links:
             chain_id = self.links[job_id]
             chain_ret = self.job_status(chain_id)
-            (ret, _) = self._program_status(job_id)
+            ret = self._program_status(job_id)
             ret['error'] = chain_ret['error']
             return ret
         else: # job_id is chain_id or not batch
@@ -303,9 +303,11 @@ echo "$?" > {ret:s}
             return {}, pid
 
         return {
+            'name': job_id,
+            'pid': pid,
             'status': status,
             'started': started,
             'finished': finished,
             'return': int(ret) if ret is not None else None,
             'error': error,
-        }, pid
+        }

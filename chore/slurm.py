@@ -114,6 +114,7 @@ class SlurmJobManager(JobManagerBase):
         (ret, sig) = data['exitcode'].split(':')
 
         return {
+            'name': data['jobname'],
             'submitted': data['submit'],
             'started': data['start'],
             'finished': data['end'],

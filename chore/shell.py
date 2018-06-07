@@ -122,9 +122,9 @@ class ShellJobManager(JobManagerBase):
     def job_status(self, job_id):
         """Returns a dictionary containing status information,
         can only be called once as it will clean up status files!"""
-        ret, pid = self._program_status(job_id)
-        if pid is not None:
-            ret['status'] = self.state_and_clear(pid, ret['status'])
+        ret = self._program_status(job_id)
+        if ret.get('pid', None) is not None:
+            ret['status'] = self.state_and_clear(ret['pid'], ret['status'])
         return ret
 
     @staticmethod
