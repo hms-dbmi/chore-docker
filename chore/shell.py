@@ -132,7 +132,8 @@ class ShellJobManager(JobManagerBase):
         """Gets the status of the process and waits for zombies to clear"""
         pid_fn = "/proc/%d/status" % int(pid)
         if os.path.exists(pid_fn):
-            data = dict(line.split(':\t', 1) for line in open(pid_fn).readlines())
+            with open(pid_fn, 'r') as fhl:
+                data = dict(line.strip().split(':\t', 1) for line in fhl)
             if data['State'][0] == 'Z':
                 # Clear up zombie processes waiting for us to pid them.
                 os.waitpid(int(pid), 0)
