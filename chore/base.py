@@ -1,4 +1,4 @@
-#
+
 # Copyright (C) 2017-2018 Maha Farhat
 #
 # This program is free software: you can redistribute it and/or modify
@@ -306,6 +306,7 @@ echo "$?" > {ret:s}
             'name': job_id,
             'pid': pid,
             'status': status,
+            'submitted': started,
             'started': started,
             'finished': finished,
             'return': int(ret) if ret is not None else None,

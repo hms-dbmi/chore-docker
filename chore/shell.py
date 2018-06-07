@@ -106,13 +106,7 @@ class ShellJobManager(JobManagerBase):
         if pid is None:
             return
         if self.is_running(pid):
-            try:
-                os.kill(int(pid), signal.SIGKILL)
-                (_, ret) = os.waitpid(int(pid), 0)
-                self.job_write(job_id, 'err', 'S')
-                self.job_write(job_id, 'ret', ret)
-            except IOError:
-                pass
+            self.clean_up()
 
     @staticmethod
     def is_running(pid):
@@ -136,7 +130,10 @@ class ShellJobManager(JobManagerBase):
                 data = dict(line.strip().split(':\t', 1) for line in fhl)
             if data['State'][0] == 'Z':
                 # Clear up zombie processes waiting for us to pid them.
-                os.waitpid(int(pid), 0)
+                try:
+                    os.waitpid(int(pid), 0)
+                except OSError:
+                    pass
                 return default
             return {
                 'D': 'sleeping', # Machine is too busy
