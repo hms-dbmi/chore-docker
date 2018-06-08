@@ -76,9 +76,9 @@ class SlurmJobManager(JobManagerBase):
         """Stop the given process using scancel"""
         return Popen(['scancel', job_id]).wait() == 0
 
-    def jobs_status(self):
+    def jobs_status(self, **kw):
         """Returns the status for the whole slurm directory"""
-        for ret in self._sacct():
+        for ret in self._sacct(**kw):
             if ret['name'] == 'batch':
                 continue
             yield ret

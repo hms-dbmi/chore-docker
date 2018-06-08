@@ -266,9 +266,9 @@ echo "$?" > {ret:s}
         """Returns the status of the job"""
         raise NotImplementedError("Function 'job_status' is missing.")
 
-    def jobs_status(self):
+    def jobs_status(self, **kw):
         """Returns a list of statuses for all recorded jobs"""
-        for job_id in self.jobs():
+        for job_id in self.jobs(**kw):
             yield self.job_status(job_id)
 
     def status(self, job_id, clean=False):
