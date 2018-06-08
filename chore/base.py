@@ -331,6 +331,6 @@ def compile_args(*args, **kwargs):
     for value in args:
         yield compile_value(value)
 
-def command(name, *args, **kwargs):
+def command(command_name, *args, **kwargs):
     """Generate a Popen command list"""
-    return [name] + list(compile_args(*args, **kwargs))
+    return [command_name] + list(compile_args(*args, **kwargs))
