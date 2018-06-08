@@ -79,7 +79,7 @@ class SlurmJobManager(JobManagerBase):
     def jobs_status(self):
         """Returns the status for the whole slurm directory"""
         for ret in self._sacct():
-            if ret['name'].endswith('.batch'):
+            if ret['name'] == 'batch':
                 continue
             yield ret
 
