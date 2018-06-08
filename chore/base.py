@@ -300,7 +300,7 @@ echo "$?" > {ret:s}
                 status = 'stopped'
 
         if pid is None and ret is None:
-            return {}, pid
+            return {}
 
         return {
             'name': job_id,
@@ -312,3 +312,25 @@ echo "$?" > {ret:s}
             'return': int(ret) if ret is not None else None,
             'error': error,
         }
+
+def compile_value(value):
+    """Compile a value for args"""
+    if isinstance(value, (list, tuple)):
+        return ",".join([str(v) for v in value])
+    return str(value)
+
+def compile_args(*args, **kwargs):
+    """Compile arguments into a shell standard format, returns a list"""
+    for (name, value) in kwargs.items():
+        if len(name) == 1:
+            yield "-{}".format(name)
+        else:
+            yield "--{}".format(name)
+        if value is not True:
+            yield compile_value(value)
+    for value in args:
+        yield compile_value(value)
+
+def command(name, *args, **kwargs):
+    """Generate a Popen command list"""
+    return [name] + list(compile_args(*args, **kwargs))

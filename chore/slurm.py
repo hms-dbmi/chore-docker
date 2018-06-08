@@ -22,7 +22,7 @@ This is the slurm based work-schedular plugin.
 from datetime import datetime
 from subprocess import Popen, PIPE
 
-from .base import JobManagerBase, make_aware, settings, NULL
+from .base import JobManagerBase, make_aware, settings, NULL, command
 
 class InvalidPartition(KeyError):
     """When selecting an invalid partition name"""
@@ -43,7 +43,9 @@ class SlurmJobManager(JobManagerBase):
         """
         Open the command locally using bash shell.
         """
-        bcmd = ['sbatch', '-J', job_id, '-p', self.partition, '-e', self.job_fn(job_id, 'err')]
+        bcmd = command('sbatch', J=job_id, p=self.partition,
+                       e=self.job_fn(job_id, 'err'),
+                       o=self.job_fn(job_id, 'out'))
         if depend:
             bcmd += ['--dependency=afterok:{}'.format(depend)]
         if self.limit:
@@ -76,17 +78,22 @@ class SlurmJobManager(JobManagerBase):
 
     def jobs_status(self):
         """Returns the status for the whole slurm directory"""
-        return self._sacct()
+        for ret in self._sacct():
+            if ret['name'].endswith('.batch'):
+                continue
+            yield ret
 
     def job_status(self, job_id):
         """Returns if the job is running, how long it took or is taking."""
-        data = list(self._sacct('-a', '--name', job_id))
+        data = list(self._sacct(name=job_id))
         return data[0] if data else {}
 
-    def _sacct(self, *args):
+    def _sacct(self, *args, **kwargs):
         """Call sacct with the given args and yield dictionary of fields per line"""
-        cmd = ['sacct', '-p', '--format',
-               'jobid,jobname,submit,start,end,state,exitcode'] + list(args)
+        cmd = command('sacct', p=True, format=[
+            'jobid', 'jobname', 'submit', 'start', 'end', 'state', 'exitcode']\
+              + list(args), **kwargs)
+
         proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
         (out, _) = proc.communicate()
         lines = out.strip().split('\n')
