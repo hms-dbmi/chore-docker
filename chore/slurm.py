@@ -76,9 +76,9 @@ class SlurmJobManager(JobManagerBase):
         """Stop the given process using scancel"""
         return Popen(['scancel', job_id]).wait() == 0
 
-    def jobs_status(self, **kw):
+    def jobs_status(self, *args, **kw):
         """Returns the status for the whole slurm directory"""
-        for ret in self._sacct(**kw):
+        for ret in self._sacct(*args, **kw):
             if ret['name'] == 'batch':
                 continue
             yield ret
@@ -99,9 +99,9 @@ class SlurmJobManager(JobManagerBase):
         lines = out.strip().split('\n')
         header = lines[0].lower().split('|')
         for line in lines[1:]:
-            yield self._parse_status(dict(zip(header, line.split('|'))))
+            yield self._parse_status(dict(zip(header, line.split('|'))), args)
 
-    def _parse_status(self, data):
+    def _parse_status(self, data, args):
         # Get the status for the listed job, how long it took and everything
         for dkey in ('submit', 'start', 'end'):
             if ':' in data[dkey]:
@@ -120,14 +120,16 @@ class SlurmJobManager(JobManagerBase):
         (_, err) = self.job_read(data['jobname'], 'err')
         (ret, sig) = data['exitcode'].split(':')
 
-        return {
-            'name': data['jobname'],
-            'submitted': data['submit'],
-            'started': data['start'],
-            'finished': data['end'],
-            'pid': data['jobid'],
-            'status': status,
-            'return': int(ret or -1),
-            'error': str(err),
-            'signal': int(sig),
-        }
+        extras = dict(zip(args, [data.get(arg.lower(), '') for arg in args]))
+        extras['return'] = int(ret or -1)
+
+        return dict(
+            name=data['jobname'],
+            submitted=data['submit'],
+            started=data['start'],
+            finished=data['end'],
+            pid=data['jobid'],
+            status=status,
+            error=str(err),
+            signal=int(sig),
+            **extras)

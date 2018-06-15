@@ -25,7 +25,7 @@ from importlib import import_module
 from .base import JobManagerBase, PIPELINE_MODULE, PIPELINE_ROOT, PIPELINE_BATCHED, tripplet
 
 __pkgname__ = 'chore'
-__version__ = '0.7.5'
+__version__ = '0.7.6'
 
 def get_job_manager(
         module_id=PIPELINE_MODULE,

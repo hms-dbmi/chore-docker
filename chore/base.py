@@ -61,8 +61,11 @@ try:
     from django.utils.timezone import make_aware
     from django.utils.timezone import now #pylint: disable=unused-import
 except ImportError:
-    from pytz import timezone
-    make_aware = lambda dt: timezone('UTC').localize(dt, is_dst=None)
+    try:
+        from pytz import timezone
+        make_aware = lambda dt: timezone('UTC').localize(dt, is_dst=None)
+    except ImportError:
+        make_aware = lambda dt: dt #pylint: disable=invalid-name
     now = datetime.now
 
 PIPELINE_MODULE = getattr(settings, 'PIPELINE_MODULE', 'chore.shell.ShellJobManager')
@@ -133,7 +136,7 @@ class JobManagerBase(object):
         self.fn_list.add(ext)
         return os.path.join(self.pipedir, job_id + '.' + ext)
 
-    def jobs(self, ext='pid'):
+    def jobs(self, ext='pid', **kw):
         """Generator yielding job_ids based on files in job_fn"""
         if os.path.isdir(self.pipedir):
             for item in os.listdir(self.pipedir):
@@ -266,9 +269,9 @@ echo "$?" > {ret:s}
         """Returns the status of the job"""
         raise NotImplementedError("Function 'job_status' is missing.")
 
-    def jobs_status(self, **kw):
+    def jobs_status(self, *args, **kw):
         """Returns a list of statuses for all recorded jobs"""
-        for job_id in self.jobs(**kw):
+        for job_id in self.jobs(*args, **kw):
             yield self.job_status(job_id)
 
     def status(self, job_id, clean=False):
