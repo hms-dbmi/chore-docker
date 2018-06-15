@@ -68,10 +68,6 @@ except ImportError:
         make_aware = lambda dt: dt #pylint: disable=invalid-name
     now = datetime.now
 
-PIPELINE_MODULE = getattr(settings, 'PIPELINE_MODULE', 'chore.shell.ShellJobManager')
-PIPELINE_ROOT = getattr(settings, 'PIPELINE_ROOT', None)
-PIPELINE_BATCHED = getattr(settings, 'PIPELINE_BATCHED', False)
-
 def has_program(program):
     """Returns true if the program is found, false if not"""
     try:

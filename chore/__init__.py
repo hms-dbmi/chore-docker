@@ -22,16 +22,21 @@ Gets the configured pipeline module and initialises it.
 import inspect
 from importlib import import_module
 
-from .base import JobManagerBase, PIPELINE_MODULE, PIPELINE_ROOT, PIPELINE_BATCHED, tripplet
+from .base import JobManagerBase, settings, tripplet
 
 __pkgname__ = 'chore'
-__version__ = '0.7.6'
+__version__ = '0.7.7'
 
-def get_job_manager(
-        module_id=PIPELINE_MODULE,
-        pipe_root=PIPELINE_ROOT,
-        batched=PIPELINE_BATCHED):
+def get_job_manager(module_id=None, pipe_root=None, batched=None):
     """Return the configured job manager for this system"""
+
+    if module_id is None:
+        module_id = getattr(settings, 'PIPELINE_MODULE', 'chore.shell.ShellJobManager')
+    if pipe_root is None:
+        pipe_root = getattr(settings, 'PIPELINE_ROOT', None)
+    if batched is None:
+        batched = getattr(settings, 'PIPELINE_BATCHED', False)
+
     # Already a job manager, so return
     if isinstance(module_id, JobManagerBase):
         return module_id
