@@ -116,12 +116,19 @@ class SlurmJobManager(JobManagerBase):
             'SUSPENDED': 'running',
         }.get(data['state'], 'finished')
 
-        ret = None
         (_, err) = self.job_read(data['jobname'], 'err')
         (ret, sig) = data['exitcode'].split(':')
 
         extras = dict(zip(args, [data.get(arg.lower(), '') for arg in args]))
-        extras['return'] = int(ret or -1)
+
+        if 'CANCELLED'in data['state']:
+            extras['return'] = 129
+            extras['message'] = 'CANCELLED'
+        elif 'TIMEOUT' in data['state']:
+            extras['return'] = 130
+            extras['message'] = 'TIMEOUT'
+        else:
+            extras['return'] = int(ret or -1)
 
         return dict(
             name=data['jobname'],
