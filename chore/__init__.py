@@ -25,7 +25,7 @@ from importlib import import_module
 from .base import JobManagerBase, settings, tripplet
 
 __pkgname__ = 'chore'
-__version__ = '0.7.7'
+__version__ = '0.7.8'
 
 def get_job_manager(module_id=None, pipe_root=None, batched=None):
     """Return the configured job manager for this system"""
