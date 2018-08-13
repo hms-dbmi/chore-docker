@@ -91,10 +91,11 @@ class SlurmJobManager(JobManagerBase):
 
     def _sacct(self, *args, **kwargs):
         """Call sacct with the given args and yield dictionary of fields per line"""
-        if self.user:
-            kwargs['u'] = self.user
-        else:
-            kwargs['a'] = True
+        if 'user' not in kwargs and 'u' not in kwargs and 'a' not in kwargs:
+            if self.user:
+                kwargs['u'] = self.user
+            else:
+                kwargs['a'] = True
         cmd = command('sacct', p=True, format=[
             'jobid', 'jobname', 'submit', 'start', 'end', 'state', 'exitcode']\
               + list(args), **kwargs)
