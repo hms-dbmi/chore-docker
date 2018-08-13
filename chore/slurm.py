@@ -34,6 +34,7 @@ class SlurmJobManager(JobManagerBase):
     def __init__(self, *args, **kw):
         self.partition = getattr(settings, 'PIPELINE_SLURM_PARTITION', 'normal')
         self.limit = getattr(settings, 'PIPELINE_SLURM_LIMIT', '12:00')
+        self.user = getattr(settings, 'PIPELINE_SLURM_USER', None)
         if isinstance(self.limit, int):
             self.limit = "%s:00" % self.limit
 
@@ -90,6 +91,10 @@ class SlurmJobManager(JobManagerBase):
 
     def _sacct(self, *args, **kwargs):
         """Call sacct with the given args and yield dictionary of fields per line"""
+        if self.user:
+            kwargs['u'] = self.user
+        else:
+            kwargs['a'] = True
         cmd = command('sacct', p=True, format=[
             'jobid', 'jobname', 'submit', 'start', 'end', 'state', 'exitcode']\
               + list(args), **kwargs)
