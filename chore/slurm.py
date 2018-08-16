@@ -19,6 +19,7 @@
 This is the slurm based work-schedular plugin.
 """
 
+import os
 from datetime import datetime
 from subprocess import Popen, PIPE
 
@@ -35,6 +36,8 @@ class SlurmJobManager(JobManagerBase):
         self.partition = getattr(settings, 'PIPELINE_SLURM_PARTITION', 'normal')
         self.limit = getattr(settings, 'PIPELINE_SLURM_LIMIT', '12:00')
         self.user = getattr(settings, 'PIPELINE_SLURM_USER', None)
+        self.prefix = getattr(settings, 'PIPELINE_SLURM_PREFIX', '#!/bin/bash')
+
         if isinstance(self.limit, int):
             self.limit = "%s:00" % self.limit
 
@@ -53,7 +56,7 @@ class SlurmJobManager(JobManagerBase):
             bcmd += ['-t', self.limit]
 
         # Prefix bash interpriter for script
-        cmd = "#!/bin/bash\n\n" + cmd
+        cmd = self.prefix + "\n\n" + cmd
 
         proc = Popen(
             bcmd,
@@ -61,6 +64,7 @@ class SlurmJobManager(JobManagerBase):
             stdout=NULL,
             stderr=PIPE,
             stdin=PIPE,
+            env=os.environ,
             close_fds=True)
 
         (_, stderr) = proc.communicate(input=cmd)
