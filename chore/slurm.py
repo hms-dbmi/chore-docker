@@ -33,10 +33,14 @@ class SlurmJobManager(JobManagerBase):
     programs = ['sbatch', 'scancel', 'sacct']
 
     def __init__(self, *args, **kw):
-        self.partition = getattr(settings, 'PIPELINE_SLURM_PARTITION', 'normal')
-        self.limit = getattr(settings, 'PIPELINE_SLURM_LIMIT', '12:00')
-        self.user = getattr(settings, 'PIPELINE_SLURM_USER', None)
-        self.prefix = getattr(settings, 'PIPELINE_SLURM_PREFIX', '#!/bin/bash')
+        def get_setting(name, default):
+            """Get setting from system, kw or default value"""
+            return getattr(settings, 'PIPELINE_SLURM_' + name.upper(),
+                           kw.pop(name, default))
+        self.partition = get_setting('partition', 'normal')
+        self.limit = get_setting('limit', '12:00')
+        self.user = get_setting('user', None)
+        self.prefix = get_setting('prefix', '#!/bin/bash')
 
         if isinstance(self.limit, int):
             self.limit = "%s:00" % self.limit
