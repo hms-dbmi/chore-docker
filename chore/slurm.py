@@ -23,7 +23,7 @@ import os
 from datetime import datetime
 from subprocess import Popen, PIPE
 
-from .base import JobManagerBase, make_aware, settings, NULL, command
+from .base import JobManagerBase, JobSubmissionError, make_aware, settings, command, NULL
 
 class InvalidPartition(KeyError):
     """When selecting an invalid partition name"""

@@ -33,6 +33,9 @@ except ImportError:
     from itertools import tee, islice, chain # py3
     izip = zip
 
+class JobSubmissionError(IOError):
+    """Submit job failed with a message"""
+
 # These sections are for django compatibility
 try:
     from django.conf import settings

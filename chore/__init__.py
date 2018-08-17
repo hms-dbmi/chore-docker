@@ -22,7 +22,7 @@ Gets the configured pipeline module and initialises it.
 import inspect
 from importlib import import_module
 
-from .base import JobManagerBase, settings, tripplet
+from .base import JobManagerBase, settings, tripplet, JobSubmissionError
 
 __pkgname__ = 'chore'
 __version__ = '0.8.0'
