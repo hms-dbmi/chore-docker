@@ -54,8 +54,11 @@ class SlurmJobManager(JobManagerBase):
         bcmd = command('sbatch', J=job_id, p=self.partition,
                        e=self.job_fn(job_id, 'err'),
                        o=self.job_fn(job_id, 'out'))
+
         if depend:
-            bcmd += ['--dependency=afterok:{}'.format(depend)]
+            child_jobid = self.name_to_id(depend)
+            bcmd += ['--dependency=afterok:{}'.format(child_jobid)]
+
         if self.limit:
             bcmd += ['-t', self.limit]
 
@@ -65,37 +68,45 @@ class SlurmJobManager(JobManagerBase):
         proc = Popen(
             bcmd,
             shell=False,
-            stdout=NULL,
+            stdout=PIPE,
             stderr=PIPE,
             stdin=PIPE,
             env=os.environ,
             close_fds=True)
 
-        (_, stderr) = proc.communicate(input=cmd)
+        (stdout, stderr) = proc.communicate(input=cmd)
 
         if 'invalid partition specified' in stderr:
             raise InvalidPartition(stderr.split("\n")[0].split(': ')[-1])
-        elif stderr:
-            raise IOError(stderr)
+        elif stderr or proc.wait() != 0:
+            raise JobSubmissionError(" ".join(bcmd) + ': ' + stderr)
 
-        return proc.wait() == 0
+        return stdout.split()[-1]
+
+    def name_to_id(self, job_name):
+        """Slurm uses jobid number, convert one to the other"""
+        for line in self._sacct(name=job_name, format=['jobid']):
+            if '.' in line['jobid']:
+                continue
+            return line['jobid']
 
     @staticmethod
     def stop(job_id):
         """Stop the given process using scancel"""
-        return Popen(['scancel', job_id]).wait() == 0
+        return Popen(['scancel', job_id], env=os.environ).wait() == 0
 
     def jobs_status(self, *args, **kw):
         """Returns the status for the whole slurm directory"""
         for ret in self._sacct(*args, **kw):
-            if ret['name'] == 'batch':
+            if ret['jobname'] == 'batch':
                 continue
-            yield ret
+            yield self._parse_status(ret, args)
 
     def job_status(self, job_id):
         """Returns if the job is running, how long it took or is taking."""
-        data = list(self._sacct(name=job_id))
-        return data[0] if data else {}
+        for row in self._sacct(name=job_id):
+            return self._parse_status(row)
+        return {}
 
     def _sacct(self, *args, **kwargs):
         """Call sacct with the given args and yield dictionary of fields per line"""
@@ -104,19 +115,22 @@ class SlurmJobManager(JobManagerBase):
                 kwargs['u'] = self.user
             else:
                 kwargs['a'] = True
-        cmd = command('sacct', p=True, format=[
-            'jobid', 'jobname', 'submit', 'start', 'end', 'state', 'exitcode']\
-              + list(args), **kwargs)
 
-        proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
+        if 'format' not in kwargs:
+            kwargs['format'] = ['jobid', 'jobname', 'submit', 'start',
+                                'end', 'state', 'exitcode'] + list(args)
+
+        cmd = command('sacct', p=True, **kwargs)
+
+        proc = Popen(cmd, stdout=PIPE, stderr=NULL, env=os.environ)
         (out, _) = proc.communicate()
         lines = out.strip().split('\n')
         header = lines[0].lower().split('|')
         for line in lines[1:]:
-            yield self._parse_status(dict(zip(header, line.split('|'))), args)
+            yield dict(zip(header, line.split('|')))
 
-    def _parse_status(self, data, args):
-        # Get the status for the listed job, how long it took and everything
+    def _parse_status(self, data, args=()):
+        """Get the status for the listed job, how long it took and everything"""
         for dkey in ('submit', 'start', 'end'):
             if ':' in data[dkey]:
                 data[dkey] = make_aware(
