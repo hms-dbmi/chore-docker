@@ -44,6 +44,8 @@ try:
         getattr(settings, 'SITE_ROOT', None)
     except ImproperlyConfigured as err:
         raise ImportError(err)
+    from django.utils.timezone import make_aware
+    from django.utils.timezone import now #pylint: disable=unused-import
 except ImportError:
     class AttributeDict(dict):
         """Provide access to a dict as object attributes"""
@@ -53,23 +55,18 @@ except ImportError:
             except KeyError as err:
                 raise AttributeError(err)
     settings = AttributeDict(os.environ)
-
-try:
-    import subprocess
-    from subprocess import NULL # py3k
-except ImportError:
-    NULL = open(os.devnull, 'wb')
-
-try:
-    from django.utils.timezone import make_aware
-    from django.utils.timezone import now #pylint: disable=unused-import
-except ImportError:
     try:
         from pytz import timezone
         make_aware = lambda dt: timezone('UTC').localize(dt, is_dst=None)
     except ImportError:
         make_aware = lambda dt: dt #pylint: disable=invalid-name
     now = datetime.now
+
+try:
+    import subprocess
+    from subprocess import NULL # py3k
+except ImportError:
+    NULL = open(os.devnull, 'wb')
 
 def has_program(program):
     """Returns true if the program is found, false if not"""
