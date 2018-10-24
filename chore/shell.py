@@ -24,7 +24,7 @@ import signal
 
 from subprocess import Popen
 
-from .base import JobManagerBase
+from .base import JobManagerBase, JobSubmissionError
 
 class ShellJobManager(JobManagerBase):
     """
@@ -53,7 +53,7 @@ class ShellJobManager(JobManagerBase):
                     # then checking it's content
                     cmd = (self.DEP % {'fn': self.job_fn(depend, 'ret')}) + cmd
             else:
-                raise IOError("Couldn't get pid for dependant job.")
+                raise JobSubmissionError("Couldn't get pid for dependant job.")
 
         # Collect the standard error into an err file
         err = open(self.job_fn(job_id, 'err'), 'w')
