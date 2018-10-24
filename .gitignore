@@ -10,3 +10,5 @@ pythonenv
 .eggs
 *.pyc
 *.swp
+*.WORK
+.mypy_cache
