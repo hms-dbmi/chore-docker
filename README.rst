@@ -15,8 +15,13 @@ A simple example::
 
     from chore.shell import JobManager
 
-    manager = JobManager('/tmp/stash_dir', batch=False)
+    manager = JobManager()
     manager.submit('job_1', 'wait 10')
+
+Basic options example::
+
+    manager = JobManager(pipedir='/specific/stash_dir', batch=True)
+    manager.submit('job_1', cmd='wait 10')
 
 A slurm example::
 
