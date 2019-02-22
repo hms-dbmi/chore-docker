@@ -43,7 +43,7 @@ setup(
     platforms        = 'linux',
     license          = 'LGPLv3',
     packages         = ['chore',],
-    install_requires = ['pytz', 'importlib'],
+    install_requires = ['pytz'],
     extras_require   = {
     },
     classifiers      = [
