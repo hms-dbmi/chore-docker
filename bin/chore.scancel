@@ -1,0 +1,32 @@
+#!/usr/bin/env python
+"""
+A fake sbatch command for chore testing
+"""
+import sys
+sys.path.insert(0, '.')
+
+from argparse import ArgumentParser
+from chore.slurm import SlurmJobTester
+
+def main():
+    """Run program"""
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument('-n', '--job-name', help='Name of the job', type=int, action='append')
+    parser.add_argument('job_id', nargs='*', help='Id of the job to be canceled')
+
+    arg = parser.parse_args()
+    slurm_db = SlurmJobTester.get_test_database()
+
+    for job in arg.job_id:
+        if job not in slurm_db:
+            sys.stderr.write("scancel: error: Invalid job id {}\n".format(job))
+            sys.exit(1)
+        slurm_db[job]['status'] = 'CANCELED'
+
+    for name in (arg.job_name or []):
+        for row in slurm_db.values():
+            if row['name'] == name:
+                row['status'] = 'CANCELED'
+
+if __name__ == '__main__':
+    main()

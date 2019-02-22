@@ -21,17 +21,33 @@ This is the most basic way of running jobs, in the local shell.
 
 import os
 import signal
+import shutil
 
 from subprocess import Popen
 
 from .base import JobManagerBase, JobSubmissionError
+DIR = os.path.dirname(__file__)
+
+def which(filename):
+    """Which replacement for python2 and python3"""
+    for path in (DIR, os.path.join(DIR, '..', 'bin')):
+        if os.path.exists(os.path.join(path, filename)):
+            return os.path.join(path, filename)
+
+    if hasattr(shutil, 'which'):
+        return shutil.which(filename)
+
+    for path in os.environ["PATH"].split(os.pathsep):
+        if os.path.exists(os.path.join(path, filename)):
+            return os.path.join(path, filename)
+    raise IOError("Can't find program: {}".format(filename))
 
 class ShellJobManager(JobManagerBase):
     """
     The job is submitted to the raw system and is controlled via it's pid.
     This pid must be stored in the pipeline-shell directory in tmp.
     """
-    watch = os.path.join(os.path.dirname(__file__), 'watch.py')
+    watch = which("chore.watch")
     DEP = watch + ' %(fn)s && '
     RET = '; echo $? > "%(fn)s"'
 

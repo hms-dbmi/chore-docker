@@ -43,6 +43,12 @@ setup(
     platforms        = 'linux',
     license          = 'LGPLv3',
     packages         = ['chore',],
+    scripts          = [
+        'bin/chore.watch',
+        'bin/chore.sacct',
+        'bin/chore.sbatch',
+        'bin/chore.scancel',
+    ],
     install_requires = ['pytz'],
     extras_require   = {
     },
