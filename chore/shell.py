@@ -55,7 +55,6 @@ class ShellJobManager(JobManagerBase):
         """
         Open the command locally using bash shell.
         """
-        self.job_stale(job_id)
         if depend:
             (_, pid) = self.job_read(depend, 'pid')
             (_, ret) = self.job_read(depend, 'ret')
@@ -121,8 +120,16 @@ class ShellJobManager(JobManagerBase):
         (_, pid) = self.job_read(job_id, 'pid')
         if pid is None:
             return
+
         if self.is_running(pid):
-            self.clean_up()
+            if not self.clean_up():
+                # invoked when an external process wants to kill a separate
+                # PipelineRun
+                try:
+                    os.kill(int(pid), signal.SIGKILL)
+                    os.waitpid(int(pid), 0)
+                except OSError:
+                    pass
 
     @staticmethod
     def is_running(pid):
