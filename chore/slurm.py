@@ -42,9 +42,6 @@ class SlurmJobManager(JobManagerBase):
         self.user = get_setting('user', None)
         self.prefix = get_setting('prefix', '#!/bin/bash')
 
-        if isinstance(self.limit, int):
-            self.limit = "%s:00" % self.limit
-
         super(SlurmJobManager, self).__init__(*args, **kw)
 
     def job_submit(self, job_id, cmd, depend=None, **kw):
@@ -61,10 +58,12 @@ class SlurmJobManager(JobManagerBase):
             bcmd += ['--dependency=afterok:{}'.format(child_jobid)]
 
         bcmd += ['--mem', kw.pop('memory', '1000M')]
-        bcmd += ['--thread-spec', kw.pop('threads', 1)]
+        bcmd += ['-n', kw.pop('threads', 1)]
 
         limit = kw.pop('limit', self.limit)
         if limit:
+            if isinstance(limit, int):
+                limit = "%s:00" % limit
             bcmd += ['-t', limit]
 
         # Prefix bash interpriter for script
