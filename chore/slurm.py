@@ -51,6 +51,7 @@ class SlurmJobManager(JobManagerBase):
         """
         Open the command locally using bash shell.
         """
+
         bcmd = command('sbatch', J=job_id, p=self.partition,
                        e=self.job_fn(job_id, 'err'),
                        o=self.job_fn(job_id, 'out'))
@@ -59,8 +60,12 @@ class SlurmJobManager(JobManagerBase):
             child_jobid = self.name_to_id(depend)
             bcmd += ['--dependency=afterok:{}'.format(child_jobid)]
 
-        if self.limit:
-            bcmd += ['-t', self.limit]
+        bcmd += ['--mem', kw.pop('memory', '1000M')]
+        bcmd += ['--thread-spec', kw.pop('threads', 1)]
+
+        limit = kw.pop('limit', self.limit)
+        if limit:
+            bcmd += ['-t', limit]
 
         # Prefix bash interpriter for script
         cmd = self.prefix + "\n\n" + cmd
