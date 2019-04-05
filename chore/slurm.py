@@ -58,7 +58,7 @@ class SlurmJobManager(JobManagerBase):
             bcmd += ['--dependency=afterok:{}'.format(child_jobid)]
 
         bcmd += ['--mem', kw.pop('memory', '1000M')]
-        bcmd += ['-n', kw.pop('threads', 1)]
+        bcmd += ['-n', kw.pop('threads', '1')]
 
         limit = kw.pop('limit', self.limit)
         if limit:
