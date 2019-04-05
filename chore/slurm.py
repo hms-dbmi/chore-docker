@@ -20,6 +20,8 @@ This is the slurm based work-schedular plugin.
 """
 
 import os
+import time
+
 from datetime import datetime
 from subprocess import Popen, PIPE
 
@@ -53,8 +55,15 @@ class SlurmJobManager(JobManagerBase):
                        e=self.job_fn(job_id, 'err'),
                        o=self.job_fn(job_id, 'out'))
 
-        if depend:
+        if depend is not None:
+            attempt = 1
             child_jobid = self.name_to_id(depend)
+            while child_jobid is None and attempt < 5:
+                time.sleep(1)
+                child_jobid = self.name_to_id(depend)
+                attempt += 1
+            if child_jobid is None:
+                raise JobSubmissionError('Could not find dependant job: {}'.format(depend))
             bcmd += ['--dependency=afterok:{}'.format(child_jobid)]
 
         bcmd += ['--mem', kw.pop('memory', '1000M')]
