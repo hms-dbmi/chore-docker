@@ -98,7 +98,7 @@ class SlurmJobManager(JobManagerBase):
 
     def name_to_id(self, job_name):
         """Slurm uses jobid number, convert one to the other"""
-        for line in self._sacct(name=job_name, format=['jobid']):
+        for line in self._sacct(name=job_name, format=['jobid'], a=True):
             if '.' in line['jobid']:
                 continue
             return line['jobid']
@@ -117,7 +117,7 @@ class SlurmJobManager(JobManagerBase):
 
     def job_status(self, job_id):
         """Returns if the job is running, how long it took or is taking."""
-        for row in self._sacct(name=job_id):
+        for row in self._sacct(name=job_id, a=True):
             return self._parse_status(row)
         return {}
 
