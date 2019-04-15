@@ -20,6 +20,8 @@ This is the slurm based work-schedular plugin.
 """
 
 import os
+import time
+
 from datetime import datetime
 from subprocess import Popen, PIPE
 
@@ -53,12 +55,19 @@ class SlurmJobManager(JobManagerBase):
                        e=self.job_fn(job_id, 'err'),
                        o=self.job_fn(job_id, 'out'))
 
-        if depend:
+        if depend is not None:
+            attempt = 1
             child_jobid = self.name_to_id(depend)
+            while child_jobid is None and attempt < 5:
+                time.sleep(1)
+                child_jobid = self.name_to_id(depend)
+                attempt += 1
+            if child_jobid is None:
+                raise JobSubmissionError('Could not find dependant job: {}'.format(depend))
             bcmd += ['--dependency=afterok:{}'.format(child_jobid)]
 
         bcmd += ['--mem', kw.pop('memory', '1000M')]
-        bcmd += ['-n', kw.pop('threads', 1)]
+        bcmd += ['-n', kw.pop('threads', '1')]
 
         limit = kw.pop('limit', self.limit)
         if limit:
@@ -89,7 +98,7 @@ class SlurmJobManager(JobManagerBase):
 
     def name_to_id(self, job_name):
         """Slurm uses jobid number, convert one to the other"""
-        for line in self._sacct(name=job_name, format=['jobid']):
+        for line in self._sacct(name=job_name, format=['jobid'], a=True):
             if '.' in line['jobid']:
                 continue
             return line['jobid']
@@ -108,7 +117,7 @@ class SlurmJobManager(JobManagerBase):
 
     def job_status(self, job_id):
         """Returns if the job is running, how long it took or is taking."""
-        for row in self._sacct(name=job_id):
+        for row in self._sacct(name=job_id, a=True):
             return self._parse_status(row)
         return {}
 
