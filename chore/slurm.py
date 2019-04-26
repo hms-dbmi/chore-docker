@@ -96,7 +96,8 @@ class SlurmJobManager(JobManagerBase):
 
     def name_to_id(self, job_name):
         """Slurm uses jobid number, convert one to the other"""
-        return self.job_read(job_name, 'sid')
+        (_, slurm_id) = self.job_read(job_name, 'sid')
+        return slurm_id
 
     @staticmethod
     def stop(job_id):
