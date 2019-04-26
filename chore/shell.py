@@ -22,6 +22,7 @@ This is the most basic way of running jobs, in the local shell.
 import os
 import signal
 import shutil
+import psutil
 
 from subprocess import Popen
 
@@ -126,8 +127,15 @@ class ShellJobManager(JobManagerBase):
                 # invoked when an external process wants to kill a separate
                 # PipelineRun
                 try:
+                    # finds children and kills them too
+                    parent = psutil.Process(int(pid))
+                    children = parent.children(recursive=True)
+                    for child in children:
+                        child.send_signal(signal.SIGKILL)
                     os.kill(int(pid), signal.SIGKILL)
                     os.waitpid(int(pid), 0)
+                except psutil.NoSuchProcess:
+                    pass
                 except OSError:
                     pass
 
