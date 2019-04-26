@@ -174,6 +174,6 @@ class SlurmJobManager(JobManagerBase):
             finished=data['end'],
             pid=data['jobid'],
             status=status,
-            error=str(err),
+            error=err,
             signal=int(sig),
             **extras)
