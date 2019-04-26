@@ -51,6 +51,7 @@ setup(
     ],
     install_requires = ['pytz'],
     extras_require   = {
+        'shell': ['psutil']
     },
     classifiers      = [
         'Intended Audience :: Developers',
