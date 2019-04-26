@@ -56,12 +56,7 @@ class SlurmJobManager(JobManagerBase):
                        o=self.job_fn(job_id, 'out'))
 
         if depend is not None:
-            attempt = 1
             child_jobid = self.name_to_id(depend)
-            while child_jobid is None and attempt < 5:
-                time.sleep(1)
-                child_jobid = self.name_to_id(depend)
-                attempt += 1
             if child_jobid is None:
                 raise JobSubmissionError('Could not find dependant job: {}'.format(depend))
             bcmd += ['--dependency=afterok:{}'.format(child_jobid)]
@@ -94,14 +89,13 @@ class SlurmJobManager(JobManagerBase):
         elif stderr or proc.wait() != 0:
             raise JobSubmissionError(" ".join(bcmd) + ': ' + stderr)
 
-        return stdout.split()[-1]
+        slurm_id = stdout.split()[-1]
+        self.job_write(job_id, 'sid', slurm_id)
+        return slurm_id
 
     def name_to_id(self, job_name):
         """Slurm uses jobid number, convert one to the other"""
-        for line in self._sacct(name=job_name, format=['jobid'], a=True):
-            if '.' in line['jobid']:
-                continue
-            return line['jobid']
+        return self.job_read(job_name, 'sid')
 
     @staticmethod
     def stop(job_id):
