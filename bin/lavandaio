@@ -1,0 +1,156 @@
+#!/usr/bin/env python
+#
+# pylint: disable=unused-argument
+
+import os
+import sys
+import json
+
+from collections import defaultdict
+
+from chore import get_job_manager, tripplet, JobSubmissionError
+
+sys.path.insert(0, '.')
+
+objects = defaultdict(dict)
+
+def json_datetime(dtm):
+    """2019-01-23T16:20:57.981Z to 2019-01-23T16:20:57+00:00"""
+    if dtm:
+        return dtm.split('.')[0] + '+00:00'
+    return None
+
+def model_pipeline(pkey, name, description, test_files):
+    """Each pipeline will have programs later once parsed"""
+    return {
+        'name': name,
+        'programs': [],
+    }
+
+def model_program(pkey, **kwargs):
+    """A program is a command line and a bunch of input files"""
+    kwargs['files'] = dict(objects['model_programfile'][fpk]  for fpk in kwargs['files'])
+    kwargs['test_files'] = dict(objects['model_programfile'][fpk]  for fpk in kwargs['test_files'])
+    return kwargs
+
+def model_pipelineprogram(pkey, pipeline, program, order):
+    """Attach each program to it's pipeline using the conjoining table"""
+    objects['model_pipeline'][pipeline]['programs'].append(objects['model_program'][program])
+    return None
+
+def model_programfile(pkey, name, store, description):
+    """Program files are their store location, and a name reference"""
+    return (name, store)
+
+# Parse each model in a specific order (to prevent race conditions between dependancies)
+ORDER = ['pipeline', 'programfile', 'program', 'pipelineprogram']
+
+def parse_json_pipelines(filename):
+    """Construct json pipelines from the json format (dumpdata)"""
+    with open(filename, 'r') as fhl:
+        data = json.loads(fhl.read())
+
+    for model in ORDER:
+        for datum in data:
+            mod = datum['model'].split('.')[-1]
+            if mod != model:
+                continue
+            name = 'model_' + mod
+            func = globals().get(name, None)
+            if func is None:
+                sys.stderr.write("Ignoring items for {}\n".format(datum['model']))
+                globals()[name] = 1
+                continue
+            elif func != 1:
+                pkey = datum.get('pk', None)
+                objects[name][pkey] = func(pkey, **datum['fields'])
+
+    return objects['model_pipeline']
+
+def verify_pipeline(pipe):
+    """
+    Varify that this command has all the programs that it needs.
+    """
+    pass
+
+def make_pipeline(prefix, pipe, files):
+    """
+    Construct a pipeline out of the pipe commands
+    """
+    for prev, program, nxt in tripplet(pipe['programs']):
+        yield dict(make_program(prefix, prev, program, nxt))
+
+def to_job_id(prefix, name):
+    """Make a predictable id from the prefix and name"""
+    return "{}_{}".format(prefix, name.lower().replace(' ', '_'))
+
+def make_program(prefix, prev, program, nxt):
+    """
+    Digest a program definition into a runnable command.
+    """
+    yield 'job_id', to_job_id(prefix, program['name'])
+    if prev:
+        yield 'prev_id', to_job_id(prefix, prev['name'])
+    if nxt:
+        yield 'next_id', to_job_id(prefix, nxt['name'])
+
+    if 'memory' in program and program['memory']:
+        yield 'memory', str(program['memory'])
+
+    if 'threads' in program and program['threads']:
+        yield 'threads', str(program['threads'])
+
+    if 'limit' in program and program['limit']:
+        yield 'limit', str(program['limit'])
+
+    cmd = ''
+    template = program['command_line']
+    # TODO apps/pipeline/models.py
+       # def prepare_command(files) (input files)
+         # def prepare_files(...)
+           # def prepare_file(...)
+
+    yield 'cmd', cmd
+
+def main():
+    """Main program"""
+    if len(sys.argv) == 1 or not os.path.isfile(sys.argv[1]):
+        sys.stderr.write("Please provide a file to import.\n")
+        sys.exit(2)
+
+    pipelines = parse_json_pipelines(sys.argv[1])
+    #for pkey, pipe in pipelines.items():
+    #    print("{}. {}".format(pkey, pipe['name']))
+
+    # Seelct one of the pipelines
+    pipe = pipelines[6]
+    print(" -== {} ==-".format(pipe['name']))
+
+    # Test if all the required files are available
+    found = True
+    for program in pipe['programs']:
+        for fname in program['files'].values():
+            if not os.path.isfile(fname):
+                found = False
+                print(" ! Can not find file: {} for program {}".format(fname, program['name']))
+            else:
+                print(" OK: {}".format(fname))
+
+    if not found:
+        return
+
+    # Verify the pipeline programs
+    verify_pipeline(pipe)
+
+    # Make program commands from pipelines
+    programs = make_pipeline('TEST_A_', pipe, sys.argv[2:])
+
+    # Submit the pipeline to chore
+    manager = get_job_manager()
+    print("Submitting jobs to: {}".format(manager))
+    for program in programs:
+        print("PROGRAM: {}".format(program))
+        #manager.submit(**program)
+
+if __name__ == '__main__':
+    main()

@@ -50,8 +50,10 @@ def get_job_manager(module_id=None, pipe_root=None, batched=None):
         (module, cls) = module_id.rsplit('.', 1)
         module = import_module(module)
         return getattr(module, cls)(pipedir=pipe_root, batch=batched)
-    except ImportError:
-        raise ImportError("Pipeline module {} is not found.".format(module_id))
+    except ImportError as err:
+        if module in str(err):
+            raise ImportError("Pipeline module {} is not found.".format(module_id))
+        raise
     except SyntaxError as err:
         raise ImportError("Pipeline module {} err: {}".format(module_id, err))
     except AttributeError:
