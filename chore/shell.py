@@ -23,8 +23,10 @@ import os
 import signal
 import shutil
 import psutil
-
 from subprocess import Popen
+
+import logging
+logger = logging.getLogger(__name__)
 
 from .base import JobManagerBase, JobSubmissionError
 DIR = os.path.dirname(__file__)
@@ -56,6 +58,7 @@ class ShellJobManager(JobManagerBase):
         """
         Open the command locally using bash shell.
         """
+        logger.debug('job_submit - job_id : {}, cmd : {}, depend : {}, kwargs : {}'.format(job_id, cmd, depend, kw))
         if depend:
             (_, pid) = self.job_read(depend, 'pid')
             (_, ret) = self.job_read(depend, 'ret')
@@ -105,6 +108,7 @@ class ShellJobManager(JobManagerBase):
 
     def clean_up(self):
         """Create a list of all processes and kills them all"""
+        logger.debug('clean_up')
         pids = list(self.all_children())
         for pid in pids:
             try:
@@ -117,6 +121,7 @@ class ShellJobManager(JobManagerBase):
 
     def stop(self, job_id):
         """Send a SIGTERM to the job and clean up"""
+        logger.debug('stop - job_id : {}'.format(job_id))
         #print("STOP: {}".format(job_id))
         (_, pid) = self.job_read(job_id, 'pid')
         if pid is None:
@@ -142,11 +147,13 @@ class ShellJobManager(JobManagerBase):
     @staticmethod
     def is_running(pid):
         """Returns true if the process is still running"""
+        logger.debug('is_running - pid : {}'.format(pid))
         return os.path.exists("/proc/%d/status" % int(pid))
 
     def job_status(self, job_id):
         """Returns a dictionary containing status information,
         can only be called once as it will clean up status files!"""
+        logger.debug('job_status - job_id : {}'.format(job_id))
         ret = self._program_status(job_id)
         if ret.get('pid', None) is not None:
             ret['status'] = self.state_and_clear(ret['pid'], ret['status'])

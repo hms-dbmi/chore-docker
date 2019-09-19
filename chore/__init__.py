@@ -24,8 +24,11 @@ from importlib import import_module
 
 from .base import JobManagerBase, settings, tripplet, JobSubmissionError
 
+import logging
+logger = logging.getLogger(__name__)
+
 __pkgname__ = 'chore'
-__version__ = '0.8.11'
+__version__ = '0.9.0'
 
 def get_job_manager(module_id=None, pipe_root=None, batched=None):
     """Return the configured job manager for this system"""
@@ -39,13 +42,16 @@ def get_job_manager(module_id=None, pipe_root=None, batched=None):
 
     # Already a job manager, so return
     if isinstance(module_id, JobManagerBase):
+        logger.debug('Job manager already exists: {}'.format(module_id))
         return module_id
 
     # A job manager class, create object and return
     if inspect.isclass(module_id):
+        logger.debug('Job manager is class: {}'.format(module_id))
         return module_id(pipedir=pipe_root, batch=batched)
 
     # A name to a job manage, import and create
+    module = None
     try:
         (module, cls) = module_id.rsplit('.', 1)
         module = import_module(module)
