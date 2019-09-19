@@ -199,12 +199,15 @@ class DockerJobManager(JobManagerBase):
 
         # TODO: REMOVE THIS !!!!
         # Modify command
+        import random
+        sleep = random.randint(30, 90)
         if input_files and output_files:
-            command = "sh -c '{} ; sleep 90 ; exit 0'".format(
+            command = "sh -c 'sleep {} ; {} ; exit 0'".format(
+                sleep,
                 ' ; '.join(['cp {} {}'.format(input_files[0], o) for o in output_files])
             )
         else:
-            command = 'sleep 30'
+            command = 'sleep {}'.format(sleep)
         # TODO: REMOVE THIS !!!!
 
         # Build the container
@@ -245,7 +248,17 @@ class DockerJobManager(JobManagerBase):
 
     def job_submit(self, job_id, cmd, depend=None, **kwargs):
         """
-        Run the container to execute the cmd.
+        Run the container to execute the cmd. As jobs are added sequentially but regardless of the status of
+        preceding or following jobs, we've got to maintain some state to determine when and if a job
+        should actually be run. This is maintained through the state of the Docker containers for each job.
+        Notes:
+            1. A created container means a job is not yet started due to waiting for the preceding job to finish
+            2. A running container is, obviously, a running job
+            3. An exited container is either a completed job, or a failed job; exit code determines this
+                i. a completed job, with exit code 0
+                ii. a failed job, with exit code 1
+            4. A created container pending a preceding container that disappears indicates an abandoned pipeline
+                i. As soon as a container fails, it is removed, indicating to waiting containers to shut it all down
         """
         logger.debug('job_submit - job_id : {}, cmd : {}, depend : {}, kwargs : {}'.format(job_id, cmd, depend, kwargs))
         if depend:
@@ -253,9 +266,9 @@ class DockerJobManager(JobManagerBase):
             # Ensure it exists
             container = self._get_container(depend)
             if not container:
-                raise JobSubmissionError("Couldn't find dependent job.")
+                self._quit_pipeline(job_id, "Couldn't find dependent job: {}".format(container.status), depend)
 
-            # Check if running
+            # Check if running or created (pending)
             elif container.status == 'running' or container.status == 'created':
                 logger.debug('Job: {} - Dependent job: {} -> {}'.format(job_id, depend, container.status))
 
@@ -278,19 +291,12 @@ class DockerJobManager(JobManagerBase):
                 ret = container.attrs['State']['ExitCode']
                 logger.debug('job_submit: Found ret: {} for dependent job: {}'.format(ret, depend))
                 if ret not in (0, None, '0'):
-                    logger.debug('job_submit: Dependent job {} failed'.format(depend))
-
-                    # Refuse to submit job if the dependant job failed
-                    # Remove this one
-                    self._remove_container(job_id)
+                    self._quit_pipeline(job_id, "Dependent job failed: {}".format(container.status), depend)
                     return False
 
             else:
-                logger.debug('job_submit: Found dependent job: {} in invalid state: {}'.format(depend, container.status))
-
-                # Remove this one
-                self._remove_container(job_id)
-                raise JobSubmissionError("Dependent job in unexpected state.")
+                self._quit_pipeline(job_id, "Dependent job in unexpected state: {}".format(container.status), depend)
+                return False
 
         # Run the command
         self._run_container(name=job_id, command=cmd, **kwargs)
@@ -308,9 +314,10 @@ class DockerJobManager(JobManagerBase):
         # Ensure it exists
         container = self._get_container(depend)
         if not container:
-            raise JobSubmissionError("Couldn't find dependent job: {}".format(depend))
+            self._quit_pipeline(job_id, "Couldn't find dependent job: {}".format(depend), depend)
+            return False
 
-        # Check if it's running or created (waiting on a job itself) and pull until it's running or finished
+        # Check if it's created (waiting on a job itself) and poll until it's running or finished
         while container.status == 'created':
             logger.debug('Job: {} - Found dependent job "{}" -> "{}", sleeping'.format(job_id, depend, container.status))
 
@@ -320,9 +327,8 @@ class DockerJobManager(JobManagerBase):
             # Update
             container = self._get_container(depend)
             if not container:
-
-                # Container was removed, likely a job failure prior, remove this one too
-                self._remove_container(job_id)
+                self._quit_pipeline(job_id, "Couldn't find dependent job: {}".format(depend), depend)
+                return False
 
         # Container should be running or finished by now, wait for or pull exit code.
         if container.status == 'running' or container.status == 'exited':
@@ -330,18 +336,24 @@ class DockerJobManager(JobManagerBase):
             # Wait on it and pull the code
             ret = container.wait()['StatusCode']
             if ret not in (0, None, '0'):
-                logger.debug('Job {}: exited with - {}'.format(job_id, ret))
-                raise JobSubmissionError("Job '{}' failed.".format(depend))
+                self._quit_pipeline(job_id, "Dependent job failed: {}".format(container.status), depend)
+                return False
 
         else:
-            logger.debug('Job {}: Found dependent job: {} in invalid state: {}'.format(job_id, depend, container.status))
-
-            # Remove this one
-            self._remove_container(job_id)
-            raise JobSubmissionError("Dependent job in unexpected state.")
+            self._quit_pipeline(job_id, "Dependent job in unexpected state: {}".format(container.status), depend)
 
         # Run the next one
         return self.job_submit(job_id, cmd, depend, **kwargs)
+
+    def _quit_pipeline(self, job_id, error, depend=None):
+        """Use this method to handle a job failure and signal to following jobs to do the same"""
+        logger.debug('Job {}/Depend {}: Quitting pipeline: {}'.format(job_id, depend, error))
+
+        # Remove this one if it was created
+        self._remove_container(job_id)
+
+        # Fail out
+        raise JobSubmissionError(error)
 
     def all_children(self):
         """Yields all running children remaining"""
@@ -386,7 +398,7 @@ class DockerJobManager(JobManagerBase):
         """
         try:
             # Docker includes nanoseconds, lop that off
-            date = datetime.strptime(date_string[:26], '%Y-%m-%dT%H:%M:%S.%f')
+            date = datetime.strptime(date_string.rstrip('Z')[:26], '%Y-%m-%dT%H:%M:%S.%f')
 
             # Is UTC, set to local timezone and return
             utc_date = date.replace(tzinfo=pytz.UTC)
@@ -430,10 +442,8 @@ class DockerJobManager(JobManagerBase):
                 'error': container.logs(stdout=False, timestamps=True),
             }
 
-            # If container was finished successfully, purge it
+            # If we got exit code, remove container
             if finished and exit_code is not None:
-
-                # We got what we need, remove it.
                 self._remove_container(job_id)
 
         return status
