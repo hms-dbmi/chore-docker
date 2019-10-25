@@ -60,30 +60,12 @@ class DockerJobManager(JobManagerBase):
         # List running containers
         for container in client.containers.list():
 
-            # Check label to ensure it's a Pipeline job
-            if cls.label_key in container.labels:
+            # Check image to ensure it's a Pipeline job
+            if container.attrs['Config']['Image'] in cls.image_name:
 
                 # Check status if specified
                 if not status or container.status == status:
                     job_container_ids.append(container.id)
-
-        return job_container_ids
-
-    @classmethod
-    def _list_running_containers(cls):
-        """
-        Fetches all current containers running jobs.
-        :rtype: list
-        """
-        # Compile the list
-        job_container_ids = []
-
-        # List running containers
-        for container in cls._list_containers():
-
-            # Check state
-            if container.status == 'running':
-                job_container_ids.append(container.id)
 
         return job_container_ids
 
@@ -102,54 +84,20 @@ class DockerJobManager(JobManagerBase):
         return None
 
     @classmethod
-    def _get_container_ret(cls, id):
-        """
-        Fetches the container for the id, if it exists, and returns its exit code
-        :rtype: docker.Container
-        """
-        client = docker.from_env()
-
-        # Get the container
-        container = cls._get_container(id)
-        if container:
-
-            # Get exit code
-            ret = container.attrs['State']['ExitCode']
-            return ret
-
-        return None
-
-    @classmethod
-    def _get_container_running(cls, id):
-        """
-        Returns whether the container is running or not
-        :rtype: bool
-        """
-        container = cls._get_container(id)
-        if container:
-            return container.status == 'running'
-
-        return False
-
-    @classmethod
-    def _remove_container(cls, id):
+    def _remove_container(cls, id_or_name):
         """
         Removes the container and cleans up
-        :param id: The id of the container
+        :param id_or_name: The id of the container
+        :returns Whether the container was removed or not
         """
         client = docker.from_env()
-
         try:
             # Get the container and remove it
-            container = client.containers.get(id)
+            container = client.containers.get(id_or_name)
             container.remove()
-
             return True
-
         except docker.errors.NotFound:
-            pass
-
-        return False
+            return False
 
     @classmethod
     def _stop_container(cls, id):
@@ -260,8 +208,8 @@ class DockerJobManager(JobManagerBase):
             4. A created container pending a preceding container that disappears indicates an abandoned pipeline
                 i. As soon as a container fails, it is removed, indicating to waiting containers to shut it all down
         """
-        logger.debug('job_submit - job_id : {}, cmd : {}, depend : {}, kwargs : {}'.format(job_id, cmd, depend, kwargs))
         if depend:
+            logger.debug('Job/{} - Depend/{}: Submitting job after depdendent'.format(job_id, depend))
 
             # Ensure it exists
             container = self._get_container(depend)
@@ -270,7 +218,7 @@ class DockerJobManager(JobManagerBase):
 
             # Check if running or created (pending)
             elif container.status == 'running' or container.status == 'created':
-                logger.debug('Job: {} - Dependent job: {} -> {}'.format(job_id, depend, container.status))
+                logger.debug('Job/{} - Depend/{}: Dependent status "{}"'.format(job_id, depend, container.status))
 
                 # If we depend on another process and it's not yet finished, create this job, if
                 # not already created
@@ -278,9 +226,7 @@ class DockerJobManager(JobManagerBase):
                     self._create_container(job_id, cmd, **kwargs)
 
                 # Queue it
-                logger.debug('Job: {} - Dependent job: {} is running, spawning process to wait for completion'.format(
-                    job_id, depend
-                ))
+                logger.debug('Job/{} - Depend/{}: Dependent waiting/running'.format(job_id, depend))
                 threading.Thread(target=self._queue_job, args=(job_id, cmd, depend), kwargs=kwargs).start()
 
                 return True
@@ -289,7 +235,7 @@ class DockerJobManager(JobManagerBase):
 
                 # Check for exit code
                 ret = container.attrs['State']['ExitCode']
-                logger.debug('job_submit: Found ret: {} for dependent job: {}'.format(ret, depend))
+                logger.debug('Job/{} - Depend/{}: Dependent returned "{}"'.format(job_id, depend, ret))
                 if ret not in (0, None, '0'):
                     self._quit_pipeline(job_id, "Dependent job failed: {}".format(container.status), depend)
                     return False
@@ -299,6 +245,7 @@ class DockerJobManager(JobManagerBase):
                 return False
 
         # Run the command
+        logger.debug('Job/{}: Submitting job: {}'.format(job_id, cmd[:40]))
         self._run_container(name=job_id, command=cmd, **kwargs)
 
         return True
@@ -310,7 +257,8 @@ class DockerJobManager(JobManagerBase):
         :param cmd: The command to run
         :param depend: The job we are waiting for
         """
-        logger.debug('_queue_job - job_id : {}, cmd : {}, depend : {}, kwargs : {}'.format(job_id, cmd, depend, kwargs))
+        logger.debug('Job/{} - Depend/{}: Queuing job behind dependent'.format(job_id, depend))
+
         # Ensure it exists
         container = self._get_container(depend)
         if not container:
@@ -319,7 +267,7 @@ class DockerJobManager(JobManagerBase):
 
         # Check if it's created (waiting on a job itself) and poll until it's running or finished
         while container.status == 'created':
-            logger.debug('Job: {} - Found dependent job "{}" -> "{}", sleeping'.format(job_id, depend, container.status))
+            logger.debug('Job/{}: Dependent job "{}" -> "{}"'.format(job_id, depend, container.status))
 
             # Try again in n seconds
             time.sleep(10)
@@ -332,6 +280,7 @@ class DockerJobManager(JobManagerBase):
 
         # Container should be running or finished by now, wait for or pull exit code.
         if container.status == 'running' or container.status == 'exited':
+            logger.debug('Job/{}: Dependent job "{}" -> "{}"'.format(job_id, depend, container.status))
 
             # Wait on it and pull the code
             ret = container.wait()['StatusCode']
@@ -347,7 +296,7 @@ class DockerJobManager(JobManagerBase):
 
     def _quit_pipeline(self, job_id, error, depend=None):
         """Use this method to handle a job failure and signal to following jobs to do the same"""
-        logger.debug('Job {}/Depend {}: Quitting pipeline: {}'.format(job_id, depend, error))
+        logger.debug('Job/{} - Depend/{}: Error "{}"'.format(job_id, depend, error))
 
         # Remove this one if it was created
         self._remove_container(job_id)
@@ -357,15 +306,14 @@ class DockerJobManager(JobManagerBase):
 
     def all_children(self):
         """Yields all running children remaining"""
-        logger.debug('all_children')
         return self._list_containers(status='running')
 
     def clean_up(self):
         """Create a list of all processes and kills them all"""
-        logger.debug('clean_up')
         # List running containers
         container_ids = [c.id for c in self._list_containers(status='running')]
         for container_id in container_ids:
+            logger.debug('Job/{}: Cleaning up'.format(container_ids))
             self._stop_container(container_id)
 
         super(DockerJobManager, self).clean_up()
@@ -373,7 +321,7 @@ class DockerJobManager(JobManagerBase):
 
     def stop(self, job_id):
         """Send a SIGTERM to the job and clean up"""
-        logger.debug('stop - job_id : {}'.format(job_id))
+        logger.debug('Job/{}: Stop'.format(job_id))
         # Check container is running
         container = self._get_container(job_id)
         if not container:
@@ -385,8 +333,9 @@ class DockerJobManager(JobManagerBase):
     @classmethod
     def is_running(cls, pid):
         """Returns true if the process is still running"""
-        logger.debug('is_running - pid : {}'.format(pid))
-        return cls._get_container_running(pid)
+        logger.debug('Job/{}: Is running?'.format(pid))
+        container = cls._get_container(pid)
+        return container is not None and container.status == 'running'
 
     @classmethod
     def _docker_datetime(cls, date_string):
@@ -411,15 +360,17 @@ class DockerJobManager(JobManagerBase):
     def job_status(self, job_id):
         """Returns a dictionary containing status information,
         can only be called once as it will clean up status files!"""
-        logger.debug('job_status - job_id : {}'.format(job_id))
+        logger.debug('Job/{}: Check status'.format(job_id))
+
+        # Start with basic status dict
+        status = {
+            'name': job_id,
+        }
+
         # Get the container
         container = self._get_container(job_id)
-        if not container:
-            status = {
-                'name': job_id,
-            }
+        if container:
 
-        else:
             # Get dates, or None if not available
             created = self._docker_datetime(container.attrs['Created'])
             started = self._docker_datetime(container.attrs['State']['StartedAt'])
@@ -427,12 +378,12 @@ class DockerJobManager(JobManagerBase):
             if finished:
                 # If finished, also grab exit code
                 exit_code = container.attrs['State']['ExitCode']
+                logger.debug('Job/{}: Has finished at "{}" with return of: "{}"'.format(job_id, finished, exit_code))
             else:
                 exit_code = None
 
             # Build status dictionary
-            status = {
-                'name': job_id,
+            status.update({
                 'pid': container.id,
                 'status': container.status,
                 'submitted': created,
@@ -440,10 +391,12 @@ class DockerJobManager(JobManagerBase):
                 'finished': finished,
                 'return': exit_code,
                 'error': container.logs(stdout=False, timestamps=True),
-            }
+            })
 
             # If we got exit code, remove container
             if finished and exit_code is not None:
                 self._remove_container(job_id)
+
+            logger.debug('Job/{}: Status: {}'.format(job_id, status['status']))
 
         return status
