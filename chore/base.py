@@ -27,6 +27,9 @@ import tempfile
 from datetime import datetime
 from collections import defaultdict
 
+import logging
+logger = logging.getLogger(__name__)
+
 try:
     from itertools import tee, islice, chain, izip
 except ImportError:
@@ -99,6 +102,7 @@ class JobManagerBase(object):
         Create the job manager, storing temporary job files in pipedir
         and optionally batch responses into a single job script.
         """
+        logger.debug('init: pipedir : {}, batch: {}'.format(pipedir, batch))
         self.batch = batch
         if pipedir is None:
             self.pipedir = tempfile.mkdtemp(prefix='pipeline-')
@@ -121,12 +125,14 @@ class JobManagerBase(object):
         """
         Submit a job to the give batching mechanism.
         """
+        logger.debug('submit: job_id : {}, cmd: {}'.format(job_id, cmd))
         if not self.batch:
             return self.job_submit(job_id, cmd, **kw)
         return self.submit_batch(job_id, cmd, **kw)
 
     def job_fn(self, job_id, ext='pid'):
         """Return the filename of the given job_id and type"""
+        logger.debug('job_fn: job_id : {}, ext: {}'.format(job_id, ext))
         if not os.path.isdir(self.pipedir):
             os.makedirs(self.pipedir)
         self.fn_list.add(ext)
@@ -134,6 +140,7 @@ class JobManagerBase(object):
 
     def jobs(self, ext='pid', **kw):
         """Generator yielding job_ids based on files in job_fn"""
+        logger.debug('jobs: ext: {}'.format(ext))
         if os.path.isdir(self.pipedir):
             for item in os.listdir(self.pipedir):
                 if item.endswith('.' + ext):
@@ -141,11 +148,13 @@ class JobManagerBase(object):
 
     def job_clean(self, job_id):
         """Remove any remaining files for this old job"""
+        logger.debug('job_clean: job_id : {}'.format(job_id))
         for ext in list(self.fn_list):
             self.job_clean_fn(job_id, ext)
 
     def job_clean_fn(self, job_id, ext):
         """Delete files once finished with them"""
+        logger.debug('job_clean_fn: job_id : {}, ext: {}'.format(job_id, ext))
         filen = self.job_fn(job_id, ext)
         if os.path.isfile(filen):
             os.unlink(filen)
@@ -154,11 +163,13 @@ class JobManagerBase(object):
 
     def clean_up(self):
         """Deletes all data in the piepline directory."""
+        logger.debug('clean_up')
         if os.path.isdir(self.pipedir):
             shutil.rmtree(self.pipedir)
 
     def job_read(self, job_id, ext='pid'):
         """Returns the content of the specific job file"""
+        logger.debug('job_read: job_id : {}, ext: {}'.format(job_id, ext))
         filen = self.job_fn(job_id, ext)
         if os.path.isfile(filen):
             with open(filen, 'r') as fhl:
@@ -169,12 +180,14 @@ class JobManagerBase(object):
 
     def job_write(self, job_id, ext, data):
         """Write the data to the given job_id record"""
+        logger.debug('job_write: job_id : {}, ext: {}, data : {}'.format(job_id, ext, data))
         filen = self.job_fn(job_id, ext)
         with open(filen, 'w') as fhl:
             fhl.write(str(data))
 
     def job_stale(self, job_id):
         """Figure out if a job has stale return files"""
+        logger.debug('job_stale: job_id : {}'.format(job_id))
         if self.job_clean_fn(job_id, 'ret'):
             sys.stderr.write("Stale job file cleared: {}\n".format(job_id))
             self.job_clean(job_id)
@@ -192,6 +205,7 @@ class JobManagerBase(object):
         """
         Submits many jobs under this chain id.
         """
+        logger.debug('submit_chain: chain_id : {}, jobs : {}'.format(chain_id, jobs))
         ids = ["{}.{}".format(chain_id, x) for x in range(len(jobs))]
         for (pid, job_id, nid), cmd in zip(tripplet(ids), jobs):
             if self.submit(job_id, cmd, depend=pid, provide=nid, chain_id=chain_id) is False:
@@ -225,6 +239,9 @@ class JobManagerBase(object):
             False - The batched jobs failed to be dispatched.
 
         """
+        logger.debug('submit_batch: job_id : {}, cmd: {}, depend : {}, provide : {}, chain_id : {}'.format(
+            job_id, cmd, depend, provide, chain_id
+        ))
         if chain_id is None:
             if depend:
                 # This job is not the first in the chain, so get existing script
@@ -250,6 +267,7 @@ class JobManagerBase(object):
 
     def _construct_job(self, job_id, cmd):
         """Turn a job command into one part of a script"""
+        logger.debug('_construct_job: job_id : {}, cmd : {}'.format(job_id, cmd))
         return """#   --== JOB: {job_id:s} ==--
 echo "-" > {pid:s}
 {cmd:s}
@@ -263,6 +281,7 @@ echo "$?" > {ret:s}
 
     def job_status(self, job_id):
         """Returns the status of the job"""
+        logger.debug('job_status: job_id : {}'.format(job_id))
         raise NotImplementedError("Function 'job_status' is missing.")
 
     def jobs_status(self, *args, **kw):
@@ -274,6 +293,7 @@ echo "$?" > {ret:s}
         """
         Return the status of this job or this batch job
         """
+        logger.debug('status: job_id : {}'.format(job_id))
         if self.batch and job_id in self.links:
             chain_id = self.links[job_id]
             chain_ret = self.job_status(chain_id)
