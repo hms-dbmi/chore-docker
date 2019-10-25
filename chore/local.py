@@ -42,8 +42,11 @@ class DockerJobManager(JobManagerBase):
     This container id must be stored in the pipeline-shell directory in tmp.
     """
     # Parameters needed for running jobs in Docker
-    image_name = 'gentb/pipeline:latest'
     label_key = 'chore'
+
+    # TODO: Update this for an image that actually does something
+    # This specifies to Chore with image to pull and utilize for jobs
+    image_name = 'python:2.7-slim'
 
     @classmethod
     def _list_containers(cls, status=None):
