@@ -195,9 +195,18 @@ class BatchJobManager(JobManagerBase):
 
             # If dependency is specified, add that
             if depend:
+
+                # Get the actual job ID
+                job = cls._get_job(job_id=depend)
+                if not job:
+                    raise ValueError('Dependency job "{}" could not be found, cannot submit job "{}"'.format(
+                        depend, name
+                    ))
+
+                # Add the dependency clause
                 kwargs['dependsOn'] = [
                     {
-                        'jobId': depend,
+                        'jobId': job['jobId'],
                         'type': 'SEQUENTIAL'
                     }
                 ]
