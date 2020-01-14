@@ -181,7 +181,7 @@ class BatchJobManager(JobManagerBase):
                 command = [
                     "sh",
                     "-c",
-                    "'sleep {} ; ls -la /mnt ; ls -la /mnt/data ; {} ; exit 0'".format(
+                    "sleep {} ; {} ; exit 0".format(
                         sleep,
                         ' ; '.join(['cp {} {}'.format(input_files[0], o) for o in output_files])
                     )
