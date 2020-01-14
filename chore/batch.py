@@ -22,6 +22,7 @@ This is the most basic way of running jobs, in the local shell.
 import os
 import boto3
 import botocore
+from datetime import datetime
 
 import logging
 logger = logging.getLogger(__name__)
@@ -273,6 +274,30 @@ class BatchJobManager(JobManagerBase):
         job = cls._get_job(job_id)
         return job is not None and job['status'] in ['RUNNING', 'STARTING']
 
+    @classmethod
+    def _batch_datetime(cls, timestamp):
+        """
+        Takes a datetime string as reported by Batch and parse the date,
+        convert to local timezone, and return.
+        :param timestamp: The datetime string
+        :return: A timezone-aware datetime object
+        """
+        try:
+            # Check for empty timestamps
+            if not timestamp:
+                return None
+
+            # Batch includes microseconds, lop that off
+            date = datetime.fromtimestamp(timestamp / 1000)
+
+            # Is UTC, set to local timezone and return
+            local_date = date.replace(tzinfo=now().tzinfo)
+
+            return local_date
+
+        except ValueError:
+            return None
+
     def job_status(self, job_id):
         logger.debug('Job/{}: Check status'.format(job_id))
 
@@ -287,13 +312,14 @@ class BatchJobManager(JobManagerBase):
 
             # Build status dictionary
             status.update({
-                'pid': job['jobId'],
+                'pid': job['jobName'],
+                'jobId': job['jobId'],
                 'status': job['status'],
-                'submitted': job['createdAt'],
-                'started': job['startedAt'],
-                'finished': job['stoppedAt'],
+                'submitted': self._batch_datetime(job['createdAt']),
+                'started': self._batch_datetime(job.get('startedAt')),
+                'finished': self._batch_datetime(job.get('stoppedAt')),
                 'return': 0 if job['status'] == 'SUCCEEDED' else 1 if job['status'] == 'FAILED' else None,
-                'error': job['statusReason'],
+                'error': job.get('statusReason'),
             })
 
             logger.debug('Job/{}: Status: {}'.format(job_id, status['status']))
