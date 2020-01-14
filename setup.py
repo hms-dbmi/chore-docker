@@ -49,11 +49,11 @@ setup(
         'bin/chore.sbatch',
         'bin/chore.scancel',
     ],
-    install_requires = ['pytz','docker'],
+    install_requires = ['pytz'],
     extras_require   = {
         'shell': ['psutil'],
         'docker': ['docker'],
-        #'batch': ['boto3'],
+        'batch': ['boto3'],
     },
     classifiers      = [
         'Intended Audience :: Developers',

@@ -61,28 +61,47 @@ class BatchJobManager(JobManagerBase):
         try:
             # Loop until we pull all jobs
             jobs = []
-            next_token = None
-            while True:
 
-                # Build arguments
-                arguments = {'jobQueue': cls.get_batch_queue()}
-                if status is not None:
-                    arguments['jobStatus'] = status.upper()
-                if next_token:
-                    arguments['nextToken'] = next_token
+            # If not a specific status, do them all
+            if status:
+                job_statuses = [status.upper()]
+            else:
+                job_statuses = ['SUBMITTED', 'PENDING', 'RUNNABLE', 'STARTING', 'RUNNING', 'SUCCEEDED', 'FAILED']
+            for job_status in job_statuses:
 
-                # Make the call
-                response = client.list_jobs(**arguments)
+                # Iterate pages, if any
+                next_token = None
+                while True:
 
-                # Add jobs
-                jobs.extend(response['jobSummaryList'])
+                    # Build arguments
+                    kwargs = {}
+                    if next_token:
+                        kwargs['nextToken'] = next_token
 
-                # Check for more
-                next_token = response.get('nextToken')
-                if not next_token:
-                    break
+                    # Make the call
+                    response = client.list_jobs(
+                        jobQueue=cls.get_batch_queue(),
+                        jobStatus=job_status,
+                        maxResults=100,
+                        **kwargs
+                    )
+
+                    # Add jobs
+                    jobs.extend(response['jobSummaryList'])
+
+                    # Check for more
+                    next_token = response.get('nextToken')
+                    if not next_token:
+                        break
+
+            logger.debug('Found {} jobs for queue: {}{}'.format(
+                len(jobs),
+                cls.get_batch_queue(),
+                ', status: {}'.format(status.upper()) if status else ''
+            ))
 
             return jobs
+
         except botocore.exceptions.ClientError as e:
             logger.exception('Batch error: {}'.format(e), exc_info=True)
             raise JobSubmissionError('Batch client error')
@@ -93,18 +112,20 @@ class BatchJobManager(JobManagerBase):
         Fetches the job for the id and returns its description dictionary
         :rtype: dict
         """
-        client = boto3.client('batch')
         try:
-            response = client.describe_jobs(
-                jobs=[job_id]
-            )
+            # Get the current list
+            jobs = cls._list_jobs()
 
-            if not response.get('jobs'):
-                logger.debug('Job/{}: not found'.format(job_id))
+            # Check if in there
+            for job in jobs:
 
-            else:
-                # Return the (likely) one job
-                return response['jobs'][0]
+                # Compare name
+                if job.get('jobName') == job_id:
+                    return job
+
+            # If we got here, job does not exist
+            logger.debug('Job/{}: Not found in queue: {}'.format(job_id, cls.get_batch_queue()))
+
         except botocore.exceptions.ClientError as e:
             logger.exception('Batch error: {}'.format(e), exc_info=True)
             raise JobSubmissionError('Batch client error')
@@ -121,8 +142,11 @@ class BatchJobManager(JobManagerBase):
         """
         client = boto3.client('batch')
         try:
+            # Get job
+            job = cls._get_job(job_id=job_id)
+
             client.terminate_job(
-                jobId=job_id,
+                jobId=job['jobId'],
                 reason=reason
             )
 
@@ -165,23 +189,30 @@ class BatchJobManager(JobManagerBase):
                 command = ['sleep', sleep]
             # TODO: REMOVE THIS !!!!
 
+            # Build optional kwargs
+            kwargs = {}
+
+            # If dependency is specified, add that
+            if depend:
+                kwargs['dependsOn'] = [
+                    {
+                        'jobId': depend,
+                        'type': 'SEQUENTIAL'
+                    }
+                ]
+
             # Make the request
             response = client.submit_job(
                 jobName=name,
                 jobQueue=cls.get_batch_queue(),
-                dependsOn=[
-                    {
-                        'jobId': depend,
-                        'type': 'SEQUENTIAL'
-                    },
-                ],
                 jobDefinition=cls.get_batch_job(),
                 retryStrategy={
                     'attempts': 3
                 },
                 containerOverrides={
-                    'command': command.split(' '),
-                }
+                    'command': command,
+                },
+                **kwargs
             )
 
             return response['jobId']
@@ -211,12 +242,12 @@ class BatchJobManager(JobManagerBase):
 
     def all_children(self):
         """Yields all running children remaining"""
-        return self._list_jobs(status='running')
+        return self._list_jobs(status='RUNNING')
 
     def clean_up(self):
         """Create a list of all processes and kills them all"""
         # List running jobs
-        job_ids = [c.id for c in self._list_jobs(status='running')]
+        job_ids = [c.id for c in self._list_jobs(status='RUNNING')]
         for job_id in job_ids:
             logger.debug('Job/{}: Cleaning up'.format(job_ids))
             self._stop_job(job_id)
@@ -236,15 +267,13 @@ class BatchJobManager(JobManagerBase):
         self._stop_job(job_id)
 
     @classmethod
-    def is_running(cls, pid):
+    def is_running(cls, job_id):
         """Returns true if the process is still running"""
-        logger.debug('Job/{}: Is running?'.format(pid))
-        job = cls._get_job(pid)
+        logger.debug('Job/{}: Is running?'.format(job_id))
+        job = cls._get_job(job_id)
         return job is not None and job['status'] in ['RUNNING', 'STARTING']
 
     def job_status(self, job_id):
-        """Returns a dictionary containing status information,
-        can only be called once as it will clean up status files!"""
         logger.debug('Job/{}: Check status'.format(job_id))
 
         # Start with basic status dict
