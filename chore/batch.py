@@ -324,7 +324,7 @@ class BatchJobManager(JobManagerBase):
             status.update({
                 'pid': job['jobName'],
                 'jobId': job['jobId'],
-                'status': job['status'],
+                'status': job['status'].lower() if not job.get('stoppedAt') else 'finished',
                 'submitted': self._batch_datetime(job['createdAt']),
                 'started': self._batch_datetime(job.get('startedAt')),
                 'finished': self._batch_datetime(job.get('stoppedAt')),

@@ -82,7 +82,7 @@ class DockerJobManager(JobManagerBase):
         try:
             return client.containers.get(id_or_name)
         except docker.errors.NotFound:
-            logger.debug('Job/container: {} not found'.format(id_or_name))
+            logger.debug('Job/container: "{}" not found'.format(id_or_name))
 
         return None
 
@@ -152,7 +152,7 @@ class DockerJobManager(JobManagerBase):
         # TODO: REMOVE THIS !!!!
         # Modify command
         import random
-        sleep = random.randint(30, 90)
+        sleep = random.randint(10, 30)
         if input_files and output_files:
             command = "sh -c 'sleep {} ; {} ; exit 0'".format(
                 sleep,
@@ -213,7 +213,7 @@ class DockerJobManager(JobManagerBase):
                 i. As soon as a container fails, it is removed, indicating to waiting containers to shut it all down
         """
         if depend:
-            logger.debug('Job/{} - Depend/{}: Submitting job after depdendent'.format(job_id, depend))
+            logger.debug('Job/{} - Depend/{}: Submitting job after dependent'.format(job_id, depend))
 
             # Ensure it exists
             container = self._get_container(depend)
@@ -389,7 +389,7 @@ class DockerJobManager(JobManagerBase):
             # Build status dictionary
             status.update({
                 'pid': container.id,
-                'status': container.status,
+                'status': container.status if exit_code is None else 'finished',
                 'submitted': created,
                 'started': started,
                 'finished': finished,
