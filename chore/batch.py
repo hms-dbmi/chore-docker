@@ -158,7 +158,8 @@ class BatchJobManager(JobManagerBase):
         return False
 
     @classmethod
-    def _run_job(cls, name, command, depend=None, provide=None, files_path=None, input_files=None, output_files=None):
+    def _run_job(cls, name, command, depend=None, provide=None, files_path=None, input_files=None, output_files=None,
+                 **kwargs):
         """
         Creates a job for running the passed command
         :param command: The command to run on the job
