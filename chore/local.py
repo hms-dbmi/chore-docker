@@ -116,7 +116,8 @@ class DockerJobManager(JobManagerBase):
         return False
 
     @classmethod
-    def _create_container(cls, name, command, depend=None, provide=None, files_path=None, input_files=None, output_files=None):
+    def _create_container(cls, name, command, depend=None, provide=None, files_path=None, input_files=None,
+                          output_files=None, **kwargs):
         """
         Creates a container for running the passed command
         :param input: The location of the file to work on
