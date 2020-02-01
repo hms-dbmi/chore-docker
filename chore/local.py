@@ -33,7 +33,7 @@ import threading
 import logging
 logger = logging.getLogger(__name__)
 
-from .base import JobManagerBase, JobSubmissionError, now, make_aware
+from .base import JobManagerBase, JobSubmissionError, now, make_aware, settings
 
 
 class DockerJobManager(JobManagerBase):
@@ -116,22 +116,23 @@ class DockerJobManager(JobManagerBase):
         return False
 
     @classmethod
-    def _create_container(cls, name, command, depend=None, provide=None, files_path=None, input_files=None,
-                          output_files=None, **kwargs):
+    def _create_container(cls, name, command, files_path=None, **kwargs):
         """
         Creates a container for running the passed command
         :param input: The location of the file to work on
         :param command: The command to run on the container
-        :param depend: The name of the preceding job
-        :param provide: The name of the following job
         :param files_path: The path to the files directory
-        :param input_files: A list of paths of files this container needs to mount
-        :param output_files: A list of paths of files this container needs to place output files in
         :return: The container ID
         :rtype: str
         """
-        logger.debug('Job: {} - Run {} - {} - {}'.format(name, files_path, input_files, output_files))
+        logger.debug('Job: {}'.format(name))
         client = docker.from_env()
+
+        # Get image to use from GenTb
+        image_name = getattr(settings, 'GENTB_PIPELINE_JOB_DESCRIPTION')
+        logger.debug('Image: {}'.format(image_name))
+        if not image_name:
+            raise JobSubmissionError('Image name must be specified in "GENTB_PIPELINE_JOB_DESCRIPTION"')
 
         # Find the current container running Gentb and mount its data volume
         mount = None
@@ -140,35 +141,87 @@ class DockerJobManager(JobManagerBase):
                 break
 
             # Check volumes
-            for mount in container.attrs['Mounts']:
+            for _mount in container.attrs['Mounts']:
                 # Check destination
-                if files_path in mount['Destination']:
-                    volume = mount['Source']
+                if files_path and _mount['Destination'] in files_path:
+                    volume = _mount['Source']
 
                     # Prepare mount
-                    mount = Mount(target=files_path, source=os.path.basename(os.path.dirname(volume)), type='volume')
+                    mount = Mount(target=_mount['Destination'], source=os.path.basename(os.path.dirname(volume)), type='volume')
                     break
 
-        # TODO: REMOVE THIS !!!!
-        # Modify command
+        # Build the container
+        container = client.containers.create(
+            name=name,
+            image=image_name,
+            command=command,
+            labels={
+                'chore': 'true',
+                'gentb-job': name,
+            },
+            detach=True,
+            mounts=[mount] if mount else [],
+        )
+
+        return container
+
+    @classmethod
+    def _create_test_container(cls, name, files_path=None, input_files=None, output_files=None, **kwargs):
+        """
+        Creates a container for running the passed command
+        :param input: The location of the file to work on
+        :param files_path: The path to the files directory
+        :param input_files: A list of paths of files this container needs to mount
+        :param output_files: A list of paths of files this container needs to place output files in
+        :return: The container ID
+        :rtype: str
+        """
+        logger.debug('Job: {} - Path: {} - Input: {} - Output: {}'.format(name, files_path, input_files, output_files))
+        client = docker.from_env()
+
+        # Get image to use from GenTb
+        image_name = getattr(settings, 'GENTB_PIPELINE_JOB_DESCRIPTION')
+        logger.debug('Image: {}'.format(image_name))
+        if not image_name:
+            raise JobSubmissionError('Image name must be specified in "GENTB_PIPELINE_JOB_DESCRIPTION"')
+
+        # Find the current container running Gentb and mount its data volume
+        mount = None
+        for container in client.containers.list():
+            if mount:
+                break
+
+            # Check volumes
+            for _mount in container.attrs['Mounts']:
+                # Check destination
+                if files_path and _mount['Destination'] in files_path:
+                    volume = _mount['Source']
+
+                    # Prepare mount
+                    mount = Mount(target=_mount['Destination'], source=os.path.basename(os.path.dirname(volume)), type='volume')
+                    break
+
+        # Set a test command to merely sleep for a random time and then produce the necessary output files
+        # by copying forward the input file(s)
         import random
         sleep = random.randint(10, 30)
         if input_files and output_files:
             command = "sh -c 'sleep {} ; {} ; exit 0'".format(
                 sleep,
-                ' ; '.join(['cp {} {}'.format(input_files[0], o) for o in output_files])
+                ' ; '.join(['cp -rp {} {}'.format(input_files[0], o) for o in output_files])
             )
         else:
             command = 'sleep {}'.format(sleep)
-        # TODO: REMOVE THIS !!!!
 
         # Build the container
         container = client.containers.create(
             name=name,
-            image=cls.image_name,
+            image=image_name,
             command=command,
             labels={
                 'chore': 'true',
+                'gentb-job': name,
+                'test': 'true',
             },
             detach=True,
             mounts=[mount] if mount else [],
@@ -190,8 +243,14 @@ class DockerJobManager(JobManagerBase):
         container = cls._get_container(name)
         if not container:
 
-            # Create it
-            container = cls._create_container(name, command, **kwargs)
+            # Check if we are in test mode or not
+            if settings.GENTB_PIPELINE_TEST:
+                logger.debug('TESTING')
+                # Create it
+                container = cls._create_test_container(name, **kwargs)
+            else:
+                # Create it
+                container = cls._create_container(name, command, **kwargs)
 
         # Start it
         container.start()
@@ -227,7 +286,15 @@ class DockerJobManager(JobManagerBase):
                 # If we depend on another process and it's not yet finished, create this job, if
                 # not already created
                 if not self._get_container(job_id):
-                    self._create_container(job_id, cmd, **kwargs)
+
+                    # Check if we are in test mode or not
+                    if settings.GENTB_PIPELINE_TEST:
+                        logger.debug('TESTING')
+                        # Create it
+                        self._create_test_container(job_id, **kwargs)
+                    else:
+                        # Create it
+                        self._create_container(job_id, cmd, **kwargs)
 
                 # Queue it
                 logger.debug('Job/{} - Depend/{}: Dependent waiting/running'.format(job_id, depend))
@@ -249,7 +316,7 @@ class DockerJobManager(JobManagerBase):
                 return False
 
         # Run the command
-        logger.debug('Job/{}: Submitting job: {}'.format(job_id, cmd[:40]))
+        logger.debug('Job/{}: Submitting job: {}'.format(job_id, cmd))
         self._run_container(name=job_id, command=cmd, **kwargs)
 
         return True
