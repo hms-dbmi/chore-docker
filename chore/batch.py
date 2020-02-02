@@ -16,18 +16,19 @@
 #
 # Author: Martin Owens
 """
-This is the most basic way of running jobs, in the local shell.
+This is the AWS way of running job, via Batch
 """
 
-import os
+import random
+from datetime import datetime
+
 import boto3
 import botocore
-from datetime import datetime
+
+from .base import JobManagerBase, JobSubmissionError, now, settings
 
 import logging
 logger = logging.getLogger(__name__)
-
-from .base import JobManagerBase, JobSubmissionError, now, make_aware
 
 
 class BatchJobManager(JobManagerBase):
@@ -40,7 +41,7 @@ class BatchJobManager(JobManagerBase):
         Fetches the name of the job queue to use for Batch, looks in environment
         :return: str
         """
-        return os.environ.get('GENTB_BATCH_JOB_QUEUE', 'gentb-demo-batch-batch-job-queue')
+        return getattr(settings, 'GENTB_PIPELINE_JOB_QUEUE')
 
     @classmethod
     def get_batch_job(cls):
@@ -48,14 +49,22 @@ class BatchJobManager(JobManagerBase):
         Fetches the name of the job definition to use for Batch, looks in environment
         :return: str
         """
-        return os.environ.get('GENTB_BATCH_JOB_DEFINITION', 'gentb-demo-batch-gentb-job')
+        return getattr(settings, 'GENTB_PIPELINE_JOB_DEFINITION')
+
+    @classmethod
+    def is_test(cls):
+        """
+        Fetches the testing status, looks in GenTb settings
+        :return: bool
+        """
+        return getattr(settings, 'GENTB_PIPELINE_TEST')
 
     @classmethod
     def _list_jobs(cls, status=None):
         """
         Fetches all current job jobs. If passed, returned jobs
         are filtered on their current status (e.g. 'SUBMITTED', 'PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED')
-        :param queue: The name of the job queue to list for
+        :param status: The status for which to query jobs
         :rtype: list
         """
         client = boto3.client('batch')
@@ -158,41 +167,19 @@ class BatchJobManager(JobManagerBase):
         return False
 
     @classmethod
-    def _run_job(cls, name, command, depend=None, provide=None, files_path=None, input_files=None, output_files=None,
-                 **kwargs):
+    def _run_job(cls, name, command, depend=None, **kwargs):
         """
         Creates a job for running the passed command
         :param command: The command to run on the job
         :param depend: The name of the preceding job
-        :param provide: The name of the following job
-        :param files_path: The path to the files directory
-        :param input_files: A list of paths of files this job needs to mount
-        :param output_files: A list of paths of files this job needs to place output files in
         :return: The job ID
         :rtype: str
         """
-        logger.debug('Job: {} - Run {} - {} - {}'.format(name, files_path, input_files, output_files))
+        logger.debug('Job: {}'.format(name))
         client = boto3.client('batch')
         try:
-            # TODO: REMOVE THIS !!!!
-            # Modify command
-            import random
-            sleep = random.randint(30, 90)
-            if input_files and output_files:
-                command = [
-                    "sh",
-                    "-c",
-                    "sleep {} ; {} ; exit 0".format(
-                        sleep,
-                        ' ; '.join(['cp {} {}'.format(input_files[0], o) for o in output_files])
-                    )
-                ]
-            else:
-                command = ['sleep', sleep]
-            # TODO: REMOVE THIS !!!!
-
             # Build optional kwargs
-            kwargs = {}
+            job_kwargs = {}
 
             # If dependency is specified, add that
             if depend:
@@ -205,12 +192,31 @@ class BatchJobManager(JobManagerBase):
                     ))
 
                 # Add the dependency clause
-                kwargs['dependsOn'] = [
+                job_kwargs['dependsOn'] = [
                     {
                         'jobId': job['jobId'],
                         'type': 'SEQUENTIAL'
                     }
                 ]
+
+            # Check if testing
+            if cls.is_test():
+
+                # Modify command
+                input_files = kwargs.get('input_files')
+                output_files = kwargs.get('output_files')
+                sleep = random.randint(30, 90)
+                if input_files and output_files:
+                    command = [
+                        "sh",
+                        "-c",
+                        "sleep {} ; {} ; exit 0".format(
+                            sleep,
+                            ' ; '.join(['cp -rp {} {}'.format(input_files[0], o) for o in output_files])
+                        )
+                    ]
+                else:
+                    command = ['sleep', sleep]
 
             # Make the request
             response = client.submit_job(
@@ -223,15 +229,14 @@ class BatchJobManager(JobManagerBase):
                 containerOverrides={
                     'command': command,
                 },
-                **kwargs
+                **job_kwargs
             )
 
             return response['jobId']
 
         except botocore.exceptions.ClientError as e:
             logger.exception('Batch error: {}'.format(e), exc_info=True)
-
-        return None
+            raise JobSubmissionError('Batch error - {}'.format(e))
 
     def job_submit(self, job_id, cmd, depend=None, **kwargs):
         """
@@ -239,6 +244,7 @@ class BatchJobManager(JobManagerBase):
         """
         logger.debug('Job/{}: Submitting job: {}'.format(job_id, cmd[:40]))
 
+        # Run it
         return self._run_job(name=job_id, command=cmd, depend=depend, **kwargs)
 
     def _quit_pipeline(self, job_id, error, depend=None):

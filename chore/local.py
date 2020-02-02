@@ -16,24 +16,24 @@
 #
 # Author: Martin Owens
 """
-This is the most basic way of running jobs, in the local shell.
+This is the Docker way of running jobs, via local Docker
 """
 
 import os
-import signal
-import shutil
-import docker
-from docker.types import Mount
 import time
 import pytz
-from inspect import getmodule
 from datetime import datetime
 import threading
+import random
+
+import docker
+from docker.types import Mount
+from docker.models.containers import Container
+
+from .base import JobManagerBase, JobSubmissionError, now, settings
 
 import logging
 logger = logging.getLogger(__name__)
-
-from .base import JobManagerBase, JobSubmissionError, now, make_aware, settings
 
 
 class DockerJobManager(JobManagerBase):
@@ -42,11 +42,23 @@ class DockerJobManager(JobManagerBase):
     This container id must be stored in the pipeline-shell directory in tmp.
     """
     # Parameters needed for running jobs in Docker
-    label_key = 'chore'
+    label_key = 'gentb-chore'
 
-    # TODO: Update this for an image that actually does something
-    # This specifies to Chore with image to pull and utilize for jobs
-    image_name = 'python:2.7-slim'
+    @classmethod
+    def image_name(cls):
+        """
+        Fetches the name of the Docker image to use for jobs, looks in GenTb settings
+        :return: str
+        """
+        return getattr(settings, 'GENTB_PIPELINE_JOB_DEFINITION')
+
+    @classmethod
+    def is_test(cls):
+        """
+        Fetches the testing status, looks in GenTb settings
+        :return: bool
+        """
+        return getattr(settings, 'GENTB_PIPELINE_TEST')
 
     @classmethod
     def _list_containers(cls, status=None):
@@ -63,8 +75,8 @@ class DockerJobManager(JobManagerBase):
         # List running containers
         for container in client.containers.list():
 
-            # Check image to ensure it's a Pipeline job
-            if container.attrs['Config']['Image'] in cls.image_name:
+            # Check labels to ensure it's a Pipeline job
+            if cls.label_key in container.labels:
 
                 # Check status if specified
                 if not status or container.status == status:
@@ -122,14 +134,16 @@ class DockerJobManager(JobManagerBase):
         :param input: The location of the file to work on
         :param command: The command to run on the container
         :param files_path: The path to the files directory
-        :return: The container ID
-        :rtype: str
+        :return: The container
+        :rtype: Container
         """
         logger.debug('Job: {}'.format(name))
+
+        # Get docker client
         client = docker.from_env()
 
         # Get image to use from GenTb
-        image_name = getattr(settings, 'GENTB_PIPELINE_JOB_DESCRIPTION')
+        image_name = cls.image_name()
         logger.debug('Image: {}'.format(image_name))
         if not image_name:
             raise JobSubmissionError('Image name must be specified in "GENTB_PIPELINE_JOB_DESCRIPTION"')
@@ -150,79 +164,38 @@ class DockerJobManager(JobManagerBase):
                     mount = Mount(target=_mount['Destination'], source=os.path.basename(os.path.dirname(volume)), type='volume')
                     break
 
-        # Build the container
-        container = client.containers.create(
-            name=name,
-            image=image_name,
-            command=command,
-            labels={
-                'chore': 'true',
-                'gentb-job': name,
-            },
-            detach=True,
-            mounts=[mount] if mount else [],
-        )
+        # Create labels for container
+        labels = {
+            cls.label_key: 'true',
+            'gentb-job': name,
+        }
 
-        return container
+        # Check if testing
+        if cls.is_test():
+            logger.debug('Job/{}: Is testing'.format(name))
 
-    @classmethod
-    def _create_test_container(cls, name, files_path=None, input_files=None, output_files=None, **kwargs):
-        """
-        Creates a container for running the passed command
-        :param input: The location of the file to work on
-        :param files_path: The path to the files directory
-        :param input_files: A list of paths of files this container needs to mount
-        :param output_files: A list of paths of files this container needs to place output files in
-        :return: The container ID
-        :rtype: str
-        """
-        logger.debug('Job: {} - Path: {} - Input: {} - Output: {}'.format(name, files_path, input_files, output_files))
-        client = docker.from_env()
+            # Set a test command to merely sleep for a random time and then produce the necessary output files
+            # by copying forward the input file(s)
+            input_files = kwargs.get('input_files')
+            output_files = kwargs.get('output_files')
+            sleep = random.randint(10, 30)
+            if input_files and output_files:
+                command = "sh -c 'sleep {} ; {} ; exit 0'".format(
+                    sleep,
+                    ' ; '.join(['cp -rp {} {}'.format(input_files[0], o) for o in output_files])
+                )
+            else:
+                command = 'sleep {}'.format(sleep)
 
-        # Get image to use from GenTb
-        image_name = getattr(settings, 'GENTB_PIPELINE_JOB_DESCRIPTION')
-        logger.debug('Image: {}'.format(image_name))
-        if not image_name:
-            raise JobSubmissionError('Image name must be specified in "GENTB_PIPELINE_JOB_DESCRIPTION"')
-
-        # Find the current container running Gentb and mount its data volume
-        mount = None
-        for container in client.containers.list():
-            if mount:
-                break
-
-            # Check volumes
-            for _mount in container.attrs['Mounts']:
-                # Check destination
-                if files_path and _mount['Destination'] in files_path:
-                    volume = _mount['Source']
-
-                    # Prepare mount
-                    mount = Mount(target=_mount['Destination'], source=os.path.basename(os.path.dirname(volume)), type='volume')
-                    break
-
-        # Set a test command to merely sleep for a random time and then produce the necessary output files
-        # by copying forward the input file(s)
-        import random
-        sleep = random.randint(10, 30)
-        if input_files and output_files:
-            command = "sh -c 'sleep {} ; {} ; exit 0'".format(
-                sleep,
-                ' ; '.join(['cp -rp {} {}'.format(input_files[0], o) for o in output_files])
-            )
-        else:
-            command = 'sleep {}'.format(sleep)
+            # Add testing to labels
+            labels['gentb-test'] = 'true'
 
         # Build the container
         container = client.containers.create(
             name=name,
             image=image_name,
             command=command,
-            labels={
-                'chore': 'true',
-                'gentb-job': name,
-                'test': 'true',
-            },
+            labels=labels,
             detach=True,
             mounts=[mount] if mount else [],
         )
@@ -236,26 +209,20 @@ class DockerJobManager(JobManagerBase):
         :param input: The location of the file to work on
         :param command: The command to run on the container
         :param output: The location to place the output
-        :return: The container ID
-        :rtype: str
+        :return: The container
+        :rtype: Container
         """
         # Check if created
         container = cls._get_container(name)
         if not container:
 
-            # Check if we are in test mode or not
-            if settings.GENTB_PIPELINE_TEST:
-                logger.debug('TESTING')
-                # Create it
-                container = cls._create_test_container(name, **kwargs)
-            else:
-                # Create it
-                container = cls._create_container(name, command, **kwargs)
+            # Create it
+            container = cls._create_container(name, command, **kwargs)
 
         # Start it
         container.start()
 
-        return container.id
+        return container
 
     def job_submit(self, job_id, cmd, depend=None, **kwargs):
         """
@@ -277,6 +244,7 @@ class DockerJobManager(JobManagerBase):
             # Ensure it exists
             container = self._get_container(depend)
             if not container:
+                # Raise error and bail
                 self._quit_pipeline(job_id, "Couldn't find dependent job: {}".format(container.status), depend)
 
             # Check if running or created (pending)
@@ -285,22 +253,27 @@ class DockerJobManager(JobManagerBase):
 
                 # If we depend on another process and it's not yet finished, create this job, if
                 # not already created
-                if not self._get_container(job_id):
+                container = self._get_container(job_id)
+                if not container:
 
-                    # Check if we are in test mode or not
-                    if settings.GENTB_PIPELINE_TEST:
-                        logger.debug('TESTING')
-                        # Create it
-                        self._create_test_container(job_id, **kwargs)
-                    else:
-                        # Create it
-                        self._create_container(job_id, cmd, **kwargs)
+                    # Create it
+                    container = self._create_container(job_id, cmd, **kwargs)
 
-                # Queue it
-                logger.debug('Job/{} - Depend/{}: Dependent waiting/running'.format(job_id, depend))
-                threading.Thread(target=self._queue_job, args=(job_id, cmd, depend), kwargs=kwargs).start()
+                    # Queue it
+                    logger.debug('Job/{} ({}) - Depend/{}: Dependent waiting/running'.format(
+                        job_id, container.id, depend
+                    ))
+                    logger.debug('Job/{} ({}) - Depend/{}: Adding job to queue'.format(
+                        job_id, container.id, depend
+                    ))
+                    threading.Thread(target=self._queue_job, args=(job_id, cmd, depend), kwargs=kwargs).start()
 
-                return True
+                else:
+                    logger.debug('Job/{} ({}) - Depend/{}: Already created with status: {}'.format(
+                        job_id, container.id, depend, container.status
+                    ))
+
+                return container.id
 
             elif container.status == 'exited':
 
@@ -308,18 +281,19 @@ class DockerJobManager(JobManagerBase):
                 ret = container.attrs['State']['ExitCode']
                 logger.debug('Job/{} - Depend/{}: Dependent returned "{}"'.format(job_id, depend, ret))
                 if ret not in (0, None, '0'):
+                    # Raise error and bail
                     self._quit_pipeline(job_id, "Dependent job failed: {}".format(container.status), depend)
-                    return False
 
             else:
+                # Raise error and bail
                 self._quit_pipeline(job_id, "Dependent job in unexpected state: {}".format(container.status), depend)
-                return False
 
         # Run the command
         logger.debug('Job/{}: Submitting job: {}'.format(job_id, cmd))
-        self._run_container(name=job_id, command=cmd, **kwargs)
+        container = self._run_container(name=job_id, command=cmd, **kwargs)
+        logger.debug('Job/{} ({}): Created container with status'.format(job_id, container.id, container.status))
 
-        return True
+        return container.id
 
     def _queue_job(self, job_id, cmd, depend, **kwargs):
         """
@@ -333,8 +307,8 @@ class DockerJobManager(JobManagerBase):
         # Ensure it exists
         container = self._get_container(depend)
         if not container:
+            # Raise error and bail
             self._quit_pipeline(job_id, "Couldn't find dependent job: {}".format(depend), depend)
-            return False
 
         # Check if it's created (waiting on a job itself) and poll until it's running or finished
         while container.status == 'created':
@@ -346,8 +320,8 @@ class DockerJobManager(JobManagerBase):
             # Update
             container = self._get_container(depend)
             if not container:
+                # Raise error and bail
                 self._quit_pipeline(job_id, "Couldn't find dependent job: {}".format(depend), depend)
-                return False
 
         # Container should be running or finished by now, wait for or pull exit code.
         if container.status == 'running' or container.status == 'exited':
@@ -356,10 +330,11 @@ class DockerJobManager(JobManagerBase):
             # Wait on it and pull the code
             ret = container.wait()['StatusCode']
             if ret not in (0, None, '0'):
+                # Raise error and bail
                 self._quit_pipeline(job_id, "Dependent job failed: {}".format(container.status), depend)
-                return False
 
         else:
+            # Raise error and bail
             self._quit_pipeline(job_id, "Dependent job in unexpected state: {}".format(container.status), depend)
 
         # Run the next one
@@ -444,6 +419,10 @@ class DockerJobManager(JobManagerBase):
 
             # Get dates, or None if not available
             created = self._docker_datetime(container.attrs['Created'])
+            if not created:
+                logger.error('No created date from container: {}'.format(container.attrs.get('Created')))
+                raise JobSubmissionError('Cannot determine created/submitted date of job')
+
             started = self._docker_datetime(container.attrs['State']['StartedAt'])
             finished = self._docker_datetime(container.attrs['State']['FinishedAt'])
             if finished:
