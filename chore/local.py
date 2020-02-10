@@ -282,11 +282,11 @@ class DockerJobManager(JobManagerBase):
                 logger.debug('Job/{} - Depend/{}: Dependent returned "{}"'.format(job_id, depend, ret))
                 if ret not in (0, None, '0'):
                     # Raise error and bail
-                    self._quit_pipeline(job_id, "Dependent job failed: {}".format(container.status), depend)
+                    self._quit_pipeline(job_id, "Dependent job/{} failed: {} -> {}".format(depend, container.status, ret), depend)
 
             else:
                 # Raise error and bail
-                self._quit_pipeline(job_id, "Dependent job in unexpected state: {}".format(container.status), depend)
+                self._quit_pipeline(job_id, "Dependent job/{} in unexpected state: {}".format(depend, container.status), depend)
 
         # Run the command
         logger.debug('Job/{}: Submitting job: {}'.format(job_id, cmd))
@@ -325,17 +325,17 @@ class DockerJobManager(JobManagerBase):
 
         # Container should be running or finished by now, wait for or pull exit code.
         if container.status == 'running' or container.status == 'exited':
-            logger.debug('Job/{}: Dependent job "{}" -> "{}"'.format(job_id, depend, container.status))
+            logger.debug('Job/{}: Waiting on dependent job "{}" -> "{}"'.format(job_id, depend, container.status))
 
             # Wait on it and pull the code
             ret = container.wait()['StatusCode']
             if ret not in (0, None, '0'):
                 # Raise error and bail
-                self._quit_pipeline(job_id, "Dependent job failed: {}".format(container.status), depend)
+                self._quit_pipeline(job_id, "Dependent job/{} failed: {} -> {}".format(depend, container.status, ret), depend)
 
         else:
             # Raise error and bail
-            self._quit_pipeline(job_id, "Dependent job in unexpected state: {}".format(container.status), depend)
+            self._quit_pipeline(job_id, "Dependent job/{} in unexpected state: {}".format(depend, container.status), depend)
 
         # Run the next one
         return self.job_submit(job_id, cmd, depend, **kwargs)
@@ -387,7 +387,7 @@ class DockerJobManager(JobManagerBase):
     def _docker_datetime(cls, date_string):
         """
         Takes a datetime string as reported by Docker and parse the date,
-        convert to local timezone, and return.
+        convert to UTC timezone, and return.
         :param date_string: The datetime string
         :return: A timezone-aware datetime object
         """
@@ -395,11 +395,10 @@ class DockerJobManager(JobManagerBase):
             # Docker includes nanoseconds, lop that off
             date = datetime.strptime(date_string.rstrip('Z')[:26], '%Y-%m-%dT%H:%M:%S.%f')
 
-            # Is UTC, set to local timezone and return
+            # Add UTC timezone and return
             utc_date = date.replace(tzinfo=pytz.UTC)
-            local_date = utc_date.astimezone(now().tzinfo)
 
-            return local_date
+            return utc_date
         except ValueError:
             return None
 

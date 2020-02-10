@@ -21,11 +21,12 @@ This is the AWS way of running job, via Batch
 
 import random
 from datetime import datetime
+import pytz
 
 import boto3
 import botocore
 
-from .base import JobManagerBase, JobSubmissionError, now, settings
+from .base import JobManagerBase, JobSubmissionError, settings
 
 import logging
 logger = logging.getLogger(__name__)
@@ -306,10 +307,11 @@ class BatchJobManager(JobManagerBase):
             # Batch includes microseconds, lop that off
             date = datetime.fromtimestamp(timestamp / 1000)
 
-            # Is UTC, set to local timezone and return
-            local_date = date.replace(tzinfo=now().tzinfo)
+            # Add UTC timezone and return
+            et_date = date.replace(tzinfo=pytz.timezone('US/Eastern'))
+            utc_date = et_date.astimezone(pytz.UTC)
 
-            return local_date
+            return utc_date
 
         except ValueError:
             return None
